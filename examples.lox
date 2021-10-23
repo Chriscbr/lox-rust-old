@@ -1,0 +1,56 @@
+fun addPair(a, b) {
+  return a + b;
+}
+
+fun identity(a) {
+  return a;
+}
+
+print identity(addPair)(1, 2); // Prints "3".
+
+fun returnFunction() {
+  var outside = "outside";
+
+  fun inner() {
+    print outside;
+  }
+
+  return inner;
+}
+
+var fn = returnFunction();
+fn();
+
+class Breakfast {
+  init(meat, bread) {
+    this.meat = meat;
+    this.bread = bread;
+  }
+
+  cook() {
+    print "Eggs a-fryin'!";
+  }
+
+  serve(who) {
+    print "Enjoy your breakfast, " + who + ".";
+  }
+}
+
+var baconAndToast = Breakfast("bacon", "toast");
+baconAndToast.serve("Dear Reader");
+// "Enjoy your bacon and toast, Dear Reader."
+
+
+class Brunch < Breakfast {
+  init(meat, bread, drink) {
+    super.init(meat, bread);
+    this.drink = drink;
+  }
+
+  drink() {
+    print "How about a Bloody Mary?";
+  }
+}
+
+var benedict = Brunch("ham", "English muffin");
+benedict.serve("Noble Reader");
