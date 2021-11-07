@@ -6,13 +6,12 @@ use std::{
 
 mod ast_printer;
 mod expr;
+mod parser;
 mod scanner;
 mod token;
 
 use anyhow::{Context, Result};
-use expr::{Expr, Literal};
 use structopt::StructOpt;
-use token::{Token, TokenType};
 
 use crate::{ast_printer::AstPrinter, expr::Visitor};
 
@@ -28,18 +27,6 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let args = Cli::from_args();
-
-    let expr = Expr::Binary(
-        Box::from(Expr::Literal(Literal::Number(5.0))),
-        Token {
-            typ: TokenType::Plus,
-            lexeme: "+",
-            line: 0,
-        },
-        Box::from(Expr::Literal(Literal::Number(7.0))),
-    );
-    let mut printer = AstPrinter;
-    println!("{}", printer.visit_expr(&expr));
 
     match args.script {
         Some(path) => run_file(path),
@@ -68,10 +55,19 @@ fn run_prompt() -> Result<()> {
 }
 
 fn run(source: &str) -> Result<()> {
-    let scanner = scanner::Scanner::from(&source);
+    let scanner = scanner::Scanner::new(&source);
     let tokens = scanner.scan_tokens()?;
-    for token in tokens {
+
+    // for debugging
+    for token in &tokens {
         println!("{:?}", token);
     }
+
+    let parser = parser::Parser;
+    let expr = parser.parse(tokens)?;
+
+    let mut printer = AstPrinter;
+    println!("{}", printer.visit_expr(&expr));
+
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::token::Token;
+use crate::token::TokenType;
 
 #[derive(Debug)]
 pub enum Literal {
@@ -9,11 +9,11 @@ pub enum Literal {
 }
 
 #[derive(Debug)]
-pub enum Expr<'a> {
+pub enum Expr {
     Literal(Literal),
-    Unary(Token<'a>, Box<Expr<'a>>),
-    Binary(Box<Expr<'a>>, Token<'a>, Box<Expr<'a>>),
-    Grouping(Box<Expr<'a>>),
+    Unary(TokenType, Box<Expr>),
+    Binary(Box<Expr>, TokenType, Box<Expr>),
+    Grouping(Box<Expr>),
 }
 
 pub trait Visitor<T> {

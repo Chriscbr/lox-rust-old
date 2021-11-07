@@ -11,12 +11,12 @@ impl Visitor<String> for AstPrinter {
                 Literal::Nil => String::from("nil"),
             },
             Expr::Unary(operator, right) => {
-                format!("({} {})", operator.lexeme, self.visit_expr(right))
+                format!("({} {})", operator, self.visit_expr(right))
             }
             Expr::Binary(left, operator, right) => {
                 format!(
                     "({} {} {})",
-                    operator.lexeme,
+                    operator,
                     self.visit_expr(left),
                     self.visit_expr(right),
                 )

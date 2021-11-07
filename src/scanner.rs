@@ -13,7 +13,7 @@ pub struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    pub fn from(source: &'a str) -> Self {
+    pub fn new(source: &'a str) -> Self {
         Scanner { source }
     }
 
@@ -26,11 +26,7 @@ impl<'a> Scanner<'a> {
             tokens.push(token);
         }
 
-        tokens.push(Token {
-            typ: TokenType::Eof,
-            lexeme: "",
-            line,
-        });
+        tokens.push(Token::new(TokenType::Eof, "", line));
 
         Ok(tokens)
     }
@@ -126,11 +122,7 @@ impl<'a> Scanner<'a> {
         len: usize,
         line: &u32,
     ) -> Result<Option<Token>> {
-        Ok(Some(Token {
-            typ,
-            lexeme: &self.source[idx..idx + len],
-            line: *line,
-        }))
+        Ok(Some(Token::new(typ, &self.source[idx..idx + len], *line)))
     }
 
     /// Returns true if there is another character to peek which matches the
@@ -257,7 +249,7 @@ mod tests {
 
     #[test]
     fn it_parses_characters_with_single_lookahead() {
-        let scanner = Scanner::from("!!=!==");
+        let scanner = Scanner::new("!!=!==");
         let tokens = scanner.scan_tokens().unwrap();
         assert_eq!(
             tokens.iter().map(|tok| tok.typ).collect::<Vec<TokenType>>(),
@@ -273,7 +265,7 @@ mod tests {
 
     #[test]
     fn it_ignores_comments() {
-        let scanner = Scanner::from("() // hello\n// last line");
+        let scanner = Scanner::new("() // hello\n// last line");
         let tokens = scanner.scan_tokens().unwrap();
         assert_eq!(
             tokens.iter().map(|tok| tok.typ).collect::<Vec<TokenType>>(),
