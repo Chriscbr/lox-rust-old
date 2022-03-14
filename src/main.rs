@@ -8,12 +8,11 @@ mod ast_printer;
 mod expr;
 mod parser;
 mod scanner;
+mod stmt;
 mod token;
 
 use anyhow::{Context, Result};
 use structopt::StructOpt;
-
-use crate::{ast_printer::AstPrinter, expr::Visitor};
 
 /// Run a lox script.
 #[derive(StructOpt)]
@@ -64,10 +63,12 @@ fn run(source: &str) -> Result<()> {
     }
 
     let parser = parser::Parser;
-    let expr = parser.parse(tokens)?;
+    let stmts = parser.parse(tokens)?;
 
-    let mut printer = AstPrinter;
-    println!("{}", printer.visit_expr(&expr));
+    // let mut printer = AstPrinter;
+    // println!("{}", printer.visit_expr(&expr));
+
+    println!("{:?}", stmts);
 
     Ok(())
 }

@@ -2,6 +2,7 @@ use std::iter::Peekable;
 
 use crate::{
     expr::{Expr, Literal},
+    stmt::Stmt,
     token::{Token, TokenType},
 };
 
@@ -10,17 +11,140 @@ use anyhow::Result;
 
 pub struct Parser;
 impl<'a> Parser {
-    pub fn parse(&self, source: Vec<Token>) -> Result<Expr> {
+    pub fn parse(&self, source: Vec<Token>) -> Result<Vec<Stmt>> {
         let mut iter = source.into_iter().peekable();
+        let mut statements = vec![];
+        while self.peek_match(&mut iter, |token| token.typ != TokenType::Eof) {
+            statements.push(self.parse_declaration(&mut iter)?);
+        }
+        Ok(statements)
+    }
 
-        Ok(self.parse_expression(&mut iter)?)
+    fn parse_declaration<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Stmt> {
+        if self.peek_match(iter, |token| token.typ == TokenType::Var) {
+            return self.parse_var_declaration(iter);
+        } else {
+            return self.parse_statement(iter);
+        }
+    }
+
+    fn parse_statement<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Stmt> {
+        if self.peek_match(iter, |token| token.typ == TokenType::Print) {
+            return self.parse_print_statement(iter);
+        } else if self.peek_match(iter, |token| token.typ == TokenType::LeftBrace) {
+            return Ok(Stmt::Block(self.parse_block(iter)?));
+        } else {
+            return self.parse_expression_statement(iter);
+        }
+    }
+
+    fn parse_expression_statement<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Stmt> {
+        let line = iter.peek().unwrap().line;
+        let expr = self.parse_expression(iter)?;
+        if self.consume_match(iter, |token| token.typ == TokenType::Semicolon) {
+            Ok(Stmt::Expression(expr))
+        } else {
+            Err(anyhow!("Expected ';' after value on line {}", line))
+        }
+    }
+
+    fn parse_block<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Vec<Stmt>> {
+        let mut statements = vec![];
+        let line = iter.next().unwrap().line; // consume '{'
+        while self.peek_match(iter, |token| token.typ != TokenType::RightBrace) {
+            statements.push(self.parse_declaration(iter)?);
+        }
+        if self.consume_match(iter, |token| token.typ == TokenType::RightBrace) {
+            Ok(statements)
+        } else {
+            Err(anyhow!("Expected '}}' to match '{{' on line {}", line))
+        }
+    }
+
+    fn parse_print_statement<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Stmt> {
+        let print_line = iter.next().unwrap().line; // consume 'print'
+        let value_line = iter
+            .peek()
+            .ok_or(anyhow!(
+                "Expected value after 'print' on line {}",
+                print_line
+            ))?
+            .line;
+        let value = self.parse_expression(iter)?;
+        if self.consume_match(iter, |token| token.typ == TokenType::Semicolon) {
+            Ok(Stmt::Print(value))
+        } else {
+            Err(anyhow!("Expected ';' after value on line {}", value_line))
+        }
+    }
+
+    fn parse_var_declaration<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Stmt> {
+        let var_line = iter.next().unwrap().line; // consume 'var'
+        let identifier: String = iter
+            .next()
+            .ok_or(anyhow!(
+                "Expected identifier after 'var' on line {}",
+                var_line
+            ))?
+            .lexeme
+            .to_string();
+        if !self.consume_match(iter, |token| token.typ == TokenType::Equal) {
+            return Err(anyhow!(
+                "Expected '=' after variable declaration on line {}",
+                var_line
+            ));
+        }
+        let initializer = self.parse_expression(iter)?;
+        if self.consume_match(iter, |token| token.typ == TokenType::Semicolon) {
+            Ok(Stmt::Var(identifier, initializer))
+        } else {
+            Err(anyhow!(
+                "Expected ';' after variable declaration on line {}",
+                var_line
+            ))
+        }
     }
 
     fn parse_expression<I: Iterator<Item = Token<'a>>>(
         &self,
         iter: &mut Peekable<I>,
     ) -> Result<Expr> {
-        self.parse_equality(iter)
+        self.parse_assignment(iter)
+    }
+
+    fn parse_assignment<I: Iterator<Item = Token<'a>>>(
+        &self,
+        iter: &mut Peekable<I>,
+    ) -> Result<Expr> {
+        let expr = self.parse_equality(iter)?;
+        if self.consume_match(iter, |token| token.typ == TokenType::Equal) {
+            let line = iter.peek().unwrap().line;
+            let value = self.parse_assignment(iter)?;
+            match expr {
+                Expr::Variable(name) => Ok(Expr::Assign(name, Box::from(value))),
+                _ => Err(anyhow!("Invalid assignment target on line {}", line)),
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     fn parse_equality<I: Iterator<Item = Token<'a>>>(
@@ -129,11 +253,13 @@ impl<'a> Parser {
                     Err(anyhow!("Expected ')' to match '(' on line {}", line))
                 }
             }
+            TokenType::Identifier => Ok(Expr::Variable(iter.next().unwrap().lexeme.to_string())),
             _ => {
                 let token = iter.next().unwrap();
                 Err(anyhow!(
-                    "Expected an expression, found {} on line {}",
+                    "Expected an expression, found \"{}\" ({}) on line {}",
                     token.lexeme,
+                    token.typ,
                     token.line
                 ))
             }
@@ -149,6 +275,25 @@ impl<'a> Parser {
     {
         if let Some(token) = iter.peek() {
             pred(token)
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if the next character matches the predicate, otherwise it
+    /// returns false. Only consumes if the match succeeds.
+    fn consume_match<F, I>(&self, iter: &mut Peekable<I>, pred: F) -> bool
+    where
+        F: FnOnce(&Token<'a>) -> bool,
+        I: Iterator<Item = Token<'a>>,
+    {
+        if let Some(token) = iter.peek() {
+            if pred(token) {
+                iter.next();
+                true
+            } else {
+                false
+            }
         } else {
             false
         }

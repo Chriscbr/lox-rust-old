@@ -10,10 +10,12 @@ pub enum Literal {
 
 #[derive(Debug)]
 pub enum Expr {
-    Literal(Literal),
-    Unary(TokenType, Box<Expr>),
+    Assign(String, Box<Expr>),
     Binary(Box<Expr>, TokenType, Box<Expr>),
     Grouping(Box<Expr>),
+    Literal(Literal),
+    Variable(String),
+    Unary(TokenType, Box<Expr>),
 }
 
 pub trait Visitor<T> {
