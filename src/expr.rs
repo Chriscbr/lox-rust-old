@@ -17,7 +17,3 @@ pub enum Expr {
     Variable(String),
     Unary(TokenType, Box<Expr>),
 }
-
-pub trait Visitor<T> {
-    fn visit_expr(&mut self, e: &Expr) -> T;
-}

@@ -10,6 +10,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 
 pub struct Parser;
+
 impl<'a> Parser {
     pub fn parse(&self, source: Vec<Token>) -> Result<Vec<Stmt>> {
         let mut iter = source.into_iter().peekable();
@@ -107,14 +108,18 @@ impl<'a> Parser {
             .lexeme
             .to_string();
         if !self.consume_match(iter, |token| token.typ == TokenType::Equal) {
-            return Err(anyhow!(
-                "Expected '=' after variable declaration on line {}",
-                var_line
-            ));
+            if self.consume_match(iter, |token| token.typ == TokenType::Semicolon) {
+                return Ok(Stmt::Var(identifier, None));
+            } else {
+                return Err(anyhow!(
+                    "Expected ';' after variable declaration on line {}",
+                    var_line
+                ));
+            }
         }
         let initializer = self.parse_expression(iter)?;
         if self.consume_match(iter, |token| token.typ == TokenType::Semicolon) {
-            Ok(Stmt::Var(identifier, initializer))
+            Ok(Stmt::Var(identifier, Some(initializer)))
         } else {
             Err(anyhow!(
                 "Expected ';' after variable declaration on line {}",

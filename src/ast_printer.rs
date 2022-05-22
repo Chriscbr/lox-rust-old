@@ -1,7 +1,11 @@
-use crate::expr::{Expr, Literal, Visitor};
+use crate::{
+    expr::{Expr, Literal},
+    visitor::ExprVisitor,
+};
 
 pub struct AstPrinter;
-impl Visitor<String> for AstPrinter {
+
+impl ExprVisitor<String> for AstPrinter {
     fn visit_expr(&mut self, e: &Expr) -> String {
         match &e {
             Expr::Assign(identifier, value) => {

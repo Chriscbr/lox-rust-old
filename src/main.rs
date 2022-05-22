@@ -6,10 +6,12 @@ use std::{
 
 mod ast_printer;
 mod expr;
+mod interpreter;
 mod parser;
 mod scanner;
 mod stmt;
 mod token;
+mod visitor;
 
 use anyhow::{Context, Result};
 use structopt::StructOpt;
@@ -44,7 +46,7 @@ fn run_prompt() -> Result<()> {
     loop {
         let mut buffer = String::new();
         print!("> ");
-        stdout().flush().with_context(|| "could not flush")?;
+        stdout().flush().with_context(|| "could not flush stdout")?;
         reader.read_line(&mut buffer)?;
         if buffer.is_empty() {
             return Ok(());
@@ -58,9 +60,9 @@ fn run(source: &str) -> Result<()> {
     let tokens = scanner.scan_tokens()?;
 
     // for debugging
-    for token in &tokens {
-        println!("{:?}", token);
-    }
+    // for token in &tokens {
+    //     println!("{:?}", token);
+    // }
 
     let parser = parser::Parser;
     let stmts = parser.parse(tokens)?;
@@ -68,7 +70,11 @@ fn run(source: &str) -> Result<()> {
     // let mut printer = AstPrinter;
     // println!("{}", printer.visit_expr(&expr));
 
-    println!("{:?}", stmts);
+    // for debugging
+    // println!("{:?}", stmts);
+
+    let mut interpreter = interpreter::Interpreter::default();
+    interpreter.interpret(&stmts)?;
 
     Ok(())
 }
