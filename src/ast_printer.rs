@@ -6,7 +6,7 @@ use crate::{
 pub struct AstPrinter;
 
 impl ExprVisitor<String> for AstPrinter {
-    fn visit_expr(&mut self, e: &Expr) -> String {
+    fn visit_expr(&self, e: &Expr) -> String {
         match &e {
             Expr::Assign(identifier, value) => {
                 format!("(set! {} {})", identifier, self.visit_expr(value))

@@ -101,7 +101,7 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
+    pub fn interpret(&self, statements: &Vec<Stmt>) -> Result<()> {
         for stmt in statements {
             self.visit_stmt(stmt)?;
         }
@@ -110,7 +110,7 @@ impl Interpreter {
 }
 
 impl StmtVisitor<Result<()>> for Interpreter {
-    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    fn visit_stmt(&self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Block(stmts) => {
                 // create an environment that will encapsulate the old one
@@ -169,7 +169,7 @@ impl StmtVisitor<Result<()>> for Interpreter {
 }
 
 impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
-    fn visit_expr(&mut self, expr: &Expr) -> Result<RuntimeValue> {
+    fn visit_expr(&self, expr: &Expr) -> Result<RuntimeValue> {
         match &expr {
             Expr::Assign(name, value) => {
                 let evaluated = self.visit_expr(value)?;
