@@ -30,10 +30,9 @@ fn main() -> Result<()> {
     let args = Cli::from_args();
 
     match args.script {
-        Some(path) => _ = run_file(path),
-        None => _ = run_prompt(),
-    };
-    Ok(())
+        Some(path) => run_file(path).map(|_| ()),
+        None => run_prompt(),
+    }
 }
 
 fn run_file(path: PathBuf) -> Result<String> {
@@ -65,8 +64,8 @@ fn run(source: &str) -> Result<String> {
     //     println!("{:?}", token);
     // }
 
-    let parser = parser::Parser;
-    let stmts = parser.parse(tokens)?;
+    let mut parser = parser::Parser::new(tokens);
+    let stmts = parser.parse()?;
 
     // let mut printer = AstPrinter;
     // println!("{}", printer.visit_expr(&expr));

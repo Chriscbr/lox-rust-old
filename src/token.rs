@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Result};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub line: u32,
@@ -9,6 +9,36 @@ pub struct Token {
 impl Token {
     pub fn new(typ: TokenKind, line: u32) -> Self {
         Token { kind: typ, line }
+    }
+
+    pub fn dummy() -> Token {
+        Token {
+            kind: TokenKind::Semicolon,
+            line: 0,
+        }
+    }
+
+    pub fn is_unary(&self) -> bool {
+        self.kind == TokenKind::Bang || self.kind == TokenKind::Minus
+    }
+
+    pub fn is_equality(&self) -> bool {
+        self.kind == TokenKind::BangEqual || self.kind == TokenKind::EqualEqual
+    }
+
+    pub fn is_comparison(&self) -> bool {
+        self.kind == TokenKind::Greater
+            || self.kind == TokenKind::GreaterEqual
+            || self.kind == TokenKind::Less
+            || self.kind == TokenKind::LessEqual
+    }
+
+    pub fn is_term(&self) -> bool {
+        self.kind == TokenKind::Minus || self.kind == TokenKind::Plus
+    }
+
+    pub fn is_factor(&self) -> bool {
+        self.kind == TokenKind::Slash || self.kind == TokenKind::Star
     }
 }
 
@@ -38,7 +68,7 @@ pub enum TokenKind {
     LessEqual,
 
     // Literals
-    Identifier(String),
+    Identifier(String), // TODO: string interning?
     String(String),
     Number(f64),
 

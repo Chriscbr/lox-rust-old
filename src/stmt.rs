@@ -1,6 +1,6 @@
 use crate::expr::Expr;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Stmt {
     Block(Vec<Stmt>),
     Expression(Expr),

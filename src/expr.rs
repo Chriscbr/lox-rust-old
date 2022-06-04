@@ -1,6 +1,6 @@
 use crate::token::TokenKind;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Literal {
     Number(f64),
     String(String),
@@ -8,7 +8,7 @@ pub enum Literal {
     Nil,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expr {
     Assign(String, Box<Expr>),
     Binary(Box<Expr>, TokenKind, Box<Expr>),

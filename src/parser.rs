@@ -1,5 +1,3 @@
-use std::iter::Peekable;
-
 use crate::{
     expr::{Expr, Literal},
     stmt::Stmt,
@@ -9,168 +7,158 @@ use crate::{
 use anyhow::anyhow;
 use anyhow::Result;
 
-// #[derive(Clone)]
-// pub struct Cursor {
-//     pub stream: Vec<Token>,
-//     index: usize,
-// }
+#[derive(Debug)]
+pub struct Cursor {
+    pub stream: Vec<Token>,
+    index: usize,
+}
 
-// impl Iterator for Cursor {
-//     type Item = TokenTree;
+impl Iterator for Cursor {
+    type Item = Token;
 
-//     fn next(&mut self) -> Option<TokenTree> {
-//         self.next_with_spacing().map(|(tree, _)| tree)
-//     }
-// }
+    fn next(&mut self) -> Option<Token> {
+        self.stream.get(self.index).map(|token| {
+            self.index += 1;
+            token.clone()
+        })
+    }
+}
 
-// impl Cursor {
-//     fn new(stream: TokenStream) -> Self {
-//         Cursor { stream, index: 0 }
-//     }
+impl Cursor {
+    fn new(stream: Vec<Token>) -> Self {
+        Cursor { stream, index: 0 }
+    }
+    pub fn next_ref(&mut self) -> Option<&Token> {
+        self.stream.get(self.index).map(|token| {
+            self.index += 1;
+            token
+        })
+    }
 
-//     #[inline]
-//     pub fn next_with_spacing(&mut self) -> Option<TreeAndSpacing> {
-//         self.stream.0.get(self.index).map(|tree| {
-//             self.index += 1;
-//             tree.clone()
-//         })
-//     }
+    pub fn index(&self) -> usize {
+        self.index
+    }
 
-//     #[inline]
-//     pub fn next_with_spacing_ref(&mut self) -> Option<&TreeAndSpacing> {
-//         self.stream.0.get(self.index).map(|tree| {
-//             self.index += 1;
-//             tree
-//         })
-//     }
+    pub fn append(&mut self, new_stream: Vec<Token>) {
+        if new_stream.is_empty() {
+            return;
+        }
+        let index = self.index;
+        let stream = std::mem::take(&mut self.stream);
+        *self = Cursor::new(vec![stream, new_stream].concat());
+        self.index = index;
+    }
 
-//     pub fn index(&self) -> usize {
-//         self.index
-//     }
+    pub fn look_ahead(&self, n: usize) -> Option<&Token> {
+        self.stream[self.index..].get(n).map(|token| token)
+    }
+}
 
-//     pub fn append(&mut self, new_stream: TokenStream) {
-//         if new_stream.is_empty() {
-//             return;
-//         }
-//         let index = self.index;
-//         let stream = mem::take(&mut self.stream);
-//         *self = TokenStream::from_streams(smallvec![stream, new_stream]).into_trees();
-//         self.index = index;
-//     }
+#[derive(Debug)]
+pub struct Parser {
+    cursor: Cursor,
+    token: Token,
+    prev_token: Token,
+}
 
-//     pub fn look_ahead(&self, n: usize) -> Option<&TokenTree> {
-//         self.stream.0[self.index..].get(n).map(|(tree, _)| tree)
-//     }
-// }
+impl Parser {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        let mut parser = Parser {
+            cursor: Cursor::new(tokens),
+            token: Token::dummy(),
+            prev_token: Token::dummy(),
+        };
 
-pub struct Parser;
+        parser.bump();
+        parser
+    }
 
-impl<'a> Parser {
-    pub fn parse(&self, source: Vec<Token>) -> Result<Vec<Stmt>> {
-        let mut iter = source.into_iter().peekable();
+    pub fn parse(&mut self) -> Result<Vec<Stmt>> {
         let mut statements = vec![];
-        while self.peek_match(&mut iter, |token| token.kind != TokenKind::Eof) {
-            statements.push(self.parse_declaration(&mut iter)?);
+        while !self.check(&TokenKind::Eof) {
+            statements.push(self.parse_declaration()?);
         }
         Ok(statements)
     }
 
-    fn parse_declaration<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Stmt> {
-        if self.peek_match(iter, |token| token.kind == TokenKind::Var) {
-            return self.parse_var_declaration(iter);
+    fn parse_declaration(&mut self) -> Result<Stmt> {
+        if self.eat(&TokenKind::Var) {
+            self.parse_var_declaration()
         } else {
-            return self.parse_statement(iter);
+            self.parse_statement()
         }
     }
 
-    fn parse_statement<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Stmt> {
-        if self.peek_match(iter, |token| token.kind == TokenKind::For) {
-            return self.parse_for_statement(iter);
-        } else if self.peek_match(iter, |token| token.kind == TokenKind::If) {
-            return self.parse_if_statement(iter);
-        } else if self.peek_match(iter, |token| token.kind == TokenKind::Print) {
-            return self.parse_print_statement(iter);
-        } else if self.peek_match(iter, |token| token.kind == TokenKind::While) {
-            return self.parse_while_statement(iter);
-        } else if self.peek_match(iter, |token| token.kind == TokenKind::LeftBrace) {
-            return Ok(Stmt::Block(self.parse_block(iter)?));
+    fn parse_statement(&mut self) -> Result<Stmt> {
+        if self.check(&TokenKind::For) {
+            self.parse_for_statement()
+        } else if self.check(&TokenKind::If) {
+            self.parse_if_statement()
+        } else if self.eat(&TokenKind::Print) {
+            self.parse_print_statement()
+        } else if self.eat(&TokenKind::While) {
+            self.parse_while_statement()
+        } else if self.eat(&TokenKind::LeftBrace) {
+            Ok(Stmt::Block(self.parse_block()?))
         } else {
-            return self.parse_expression_statement(iter);
+            self.parse_expression_statement()
         }
     }
 
-    fn parse_for_statement<I: Iterator<Item = Token>>(
-        &self,
-        iter: &mut Peekable<I>,
-    ) -> Result<Stmt> {
-        iter.next(); // consume 'for'
-        self.consume(iter, TokenKind::LeftParen, "Expected '(' after 'for'.")?;
-
-        let initializer = if let Some(token) = iter.peek() {
-            match token.kind {
-                TokenKind::Semicolon => None,
-                TokenKind::Var => Some(self.parse_var_declaration(iter)?),
-                _ => Some(self.parse_expression_statement(iter)?),
-            }
+    fn parse_for_statement(&mut self) -> Result<Stmt> {
+        self.expect(&TokenKind::For, "Expected 'for' statement.".into())?;
+        self.expect(&TokenKind::LeftParen, "Expected '(' after 'for'.".into())?;
+        let initializer = if self.check(&TokenKind::Semicolon) {
+            None
+        } else if self.eat(&TokenKind::Var) {
+            Some(self.parse_var_declaration()?)
         } else {
-            return Err(anyhow!("Expected initializer after '('."));
+            Some(self.parse_expression_statement()?)
         };
-
-        let mut condition = if self.peek_match(iter, |token| token.kind != TokenKind::Semicolon) {
-            Some(self.parse_expression(iter)?)
+        let mut condition = if !self.check(&TokenKind::Semicolon) {
+            Some(self.parse_expression()?)
         } else {
             None
         };
-
-        self.consume(
-            iter,
-            TokenKind::Semicolon,
-            "Expected ';' after loop condition.",
+        self.expect(
+            &TokenKind::Semicolon,
+            "Expected ';' after loop condition.".into(),
         )?;
-
-        let increment = if self.peek_match(iter, |token| token.kind != TokenKind::Semicolon) {
-            Some(self.parse_expression(iter)?)
+        let increment = if !self.check(&TokenKind::Semicolon) {
+            Some(self.parse_expression()?)
         } else {
             None
         };
-
-        self.consume(
-            iter,
-            TokenKind::RightParen,
-            "Expected ')' after for clauses.",
+        self.expect(
+            &TokenKind::RightParen,
+            "Expected ')' after for clauses.".into(),
         )?;
-
-        let mut body = self.parse_statement(iter)?;
-
+        let mut body = self.parse_statement()?;
         if let Some(expr) = increment {
             body = Stmt::Block(vec![body, Stmt::Expression(expr).into()]);
         }
-
         if condition.is_none() {
             condition = Some(Expr::Literal(Literal::Bool(true)));
         }
-
         body = Stmt::While(condition.unwrap(), body.into());
-
         if let Some(expr) = initializer {
             body = Stmt::Block(vec![expr, body]);
         }
-
         Ok(body)
     }
 
-    fn parse_if_statement<I: Iterator<Item = Token>>(
-        &self,
-        iter: &mut Peekable<I>,
-    ) -> Result<Stmt> {
-        iter.next(); // consume 'if'
-        self.consume(iter, TokenKind::LeftParen, "Expected '(' after 'if'.")?;
-        let condition = self.parse_expression(iter)?;
-        self.consume(iter, TokenKind::RightParen, "Expected ')' after condition.")?;
+    fn parse_if_statement(&mut self) -> Result<Stmt> {
+        self.expect(&TokenKind::If, "Expected if statement.".into())?;
+        self.expect(&TokenKind::LeftParen, "Expected '(' after 'if'.".into())?;
+        let condition = self.parse_expression()?;
+        self.expect(
+            &TokenKind::RightParen,
+            "Expected ')' after condition.".into(),
+        )?;
 
-        let then_branch = self.parse_statement(iter)?;
-        if self.peek_match(iter, |token| token.kind == TokenKind::Else) {
-            let else_branch = self.parse_statement(iter)?;
+        let then_branch = self.parse_statement()?;
+        if self.check(&TokenKind::Else) {
+            let else_branch = self.parse_statement()?;
             Ok(Stmt::If(
                 condition,
                 then_branch.into(),
@@ -181,82 +169,72 @@ impl<'a> Parser {
         }
     }
 
-    fn parse_expression_statement<I: Iterator<Item = Token>>(
-        &self,
-        iter: &mut Peekable<I>,
-    ) -> Result<Stmt> {
-        let line = iter.peek().unwrap().line;
-        let expr = self.parse_expression(iter)?;
-        if self.consume_match(iter, |token| token.kind == TokenKind::Semicolon) {
+    fn parse_expression_statement(&mut self) -> Result<Stmt> {
+        let line = self.token.line;
+        let expr = self.parse_expression()?;
+        if self.eat(&TokenKind::Semicolon) {
             Ok(Stmt::Expression(expr))
         } else {
             Err(anyhow!("Expected ';' after value on line {}", line))
         }
     }
 
-    fn parse_while_statement<I: Iterator<Item = Token>>(
-        &self,
-        iter: &mut Peekable<I>,
-    ) -> Result<Stmt> {
-        iter.next(); // consume 'while'
-        self.consume(iter, TokenKind::LeftParen, "Expected '(' after 'while'.")?;
-        let condition = self.parse_expression(iter)?;
-        self.consume(iter, TokenKind::RightParen, "Expected ')' after condition.")?;
-        let body = self.parse_statement(iter)?;
+    fn parse_while_statement(&mut self) -> Result<Stmt> {
+        let while_line = self.prev_token.line;
+        self.expect(
+            &TokenKind::LeftParen,
+            format!("Expected '(' after 'while' on line {}.", while_line),
+        )?;
+        let condition = self.parse_expression()?;
+        self.expect(
+            &TokenKind::RightParen,
+            "Expected ')' after condition.".into(),
+        )?;
+        let body = self.parse_statement()?;
         Ok(Stmt::While(condition, body.into()))
     }
 
-    fn parse_block<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Vec<Stmt>> {
+    fn parse_block(&mut self) -> Result<Vec<Stmt>> {
         let mut statements = vec![];
-        let line = iter.next().unwrap().line; // consume '{'
-        while self.peek_match(iter, |token| token.kind != TokenKind::RightBrace) {
-            statements.push(self.parse_declaration(iter)?);
+        let open_brace_line = self.prev_token.line;
+        while !self.check(&TokenKind::RightBrace) {
+            statements.push(self.parse_declaration()?);
         }
-        if self.consume_match(iter, |token| token.kind == TokenKind::RightBrace) {
+        if self.eat(&TokenKind::RightBrace) {
             Ok(statements)
         } else {
-            Err(anyhow!("Expected '}}' to match '{{' on line {}", line))
+            Err(anyhow!(
+                "Expected '}}' to match '{{' on line {}",
+                open_brace_line
+            ))
         }
     }
 
-    fn parse_print_statement<I: Iterator<Item = Token>>(
-        &self,
-        iter: &mut Peekable<I>,
-    ) -> Result<Stmt> {
-        let print_line = iter.next().unwrap().line; // consume 'print'
-        let value_line = iter
-            .peek()
-            .ok_or(anyhow!(
-                "Expected value after 'print' on line {}",
-                print_line
-            ))?
-            .line;
-        let value = self.parse_expression(iter)?;
-        if self.consume_match(iter, |token| token.kind == TokenKind::Semicolon) {
-            Ok(Stmt::Print(value))
-        } else {
-            Err(anyhow!("Expected ';' after value on line {}", value_line))
-        }
+    fn parse_print_statement(&mut self) -> Result<Stmt> {
+        let value_line = self.token.line;
+        let value = self.parse_expression()?;
+        self.expect(
+            &TokenKind::Semicolon,
+            format!("Expected ';' after value on line {}", value_line),
+        )?;
+        Ok(Stmt::Print(value))
     }
 
-    fn parse_var_declaration<I: Iterator<Item = Token>>(
-        &self,
-        iter: &mut Peekable<I>,
-    ) -> Result<Stmt> {
-        let var_line = iter.next().unwrap().line;
-        let next = iter.next().ok_or(anyhow!("expected an identifier"))?;
-        let identifier = match next.kind {
-            TokenKind::Identifier(value) => value,
+    fn parse_var_declaration(&mut self) -> Result<Stmt> {
+        let var_line = self.prev_token.line;
+        let identifier = match &self.token.kind {
+            TokenKind::Identifier(value) => value.clone(),
             _ => {
                 return Err(anyhow!(
                     "Expected an expression, found {:?} on line {}",
-                    next.kind,
-                    next.line
+                    self.token.kind,
+                    self.token.line
                 ))
             }
         };
-        if !self.consume_match(iter, |token| token.kind == TokenKind::Equal) {
-            if self.consume_match(iter, |token| token.kind == TokenKind::Semicolon) {
+        self.bump();
+        if !self.eat(&TokenKind::Equal) {
+            if self.eat(&TokenKind::Semicolon) {
                 return Ok(Stmt::Var(identifier, None));
             } else {
                 return Err(anyhow!(
@@ -265,8 +243,8 @@ impl<'a> Parser {
                 ));
             }
         }
-        let initializer = self.parse_expression(iter)?;
-        if self.consume_match(iter, |token| token.kind == TokenKind::Semicolon) {
+        let initializer = self.parse_expression()?;
+        if self.eat(&TokenKind::Semicolon) {
             Ok(Stmt::Var(identifier, Some(initializer)))
         } else {
             Err(anyhow!(
@@ -276,15 +254,15 @@ impl<'a> Parser {
         }
     }
 
-    fn parse_expression<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        self.parse_assignment(iter)
+    fn parse_expression(&mut self) -> Result<Expr> {
+        self.parse_assignment()
     }
 
-    fn parse_assignment<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let expr = self.parse_or(iter)?;
-        if self.consume_match(iter, |token| token.kind == TokenKind::Equal) {
-            let line = iter.peek().unwrap().line;
-            let value = self.parse_assignment(iter)?;
+    fn parse_assignment(&mut self) -> Result<Expr> {
+        let expr = self.parse_or()?;
+        if self.eat(&TokenKind::Equal) {
+            let line = self.token.line;
+            let value = self.parse_assignment()?;
             match expr {
                 Expr::Variable(name) => Ok(Expr::Assign(name, Box::from(value))),
                 _ => Err(anyhow!("Invalid assignment target on line {}", line)),
@@ -294,166 +272,160 @@ impl<'a> Parser {
         }
     }
 
-    fn parse_or<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let mut expr = self.parse_and(iter)?;
-        while self.peek_match(iter, |token| token.kind == TokenKind::Or) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_term(iter)?;
-            expr = Expr::Logical(Box::from(expr), operator.kind, Box::from(right))
+    fn parse_or(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_and()?;
+        while self.eat(&TokenKind::Or) {
+            let operator = self.prev_token.kind.clone();
+            let right = self.parse_term()?;
+            expr = Expr::Logical(Box::from(expr), operator, Box::from(right))
         }
         Ok(expr)
     }
 
-    fn parse_and<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let mut expr = self.parse_equality(iter)?;
-        while self.peek_match(iter, |token| token.kind == TokenKind::And) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_term(iter)?;
-            expr = Expr::Logical(Box::from(expr), operator.kind, Box::from(right))
+    fn parse_and(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_equality()?;
+        while self.eat(&TokenKind::And) {
+            let operator = self.prev_token.kind.clone();
+            let right = self.parse_term()?;
+            expr = Expr::Logical(Box::from(expr), operator, Box::from(right))
         }
         Ok(expr)
     }
 
-    fn parse_equality<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let mut expr = self.parse_comparison(iter)?;
-        while self.peek_match(iter, |token| {
-            token.kind == TokenKind::BangEqual || token.kind == TokenKind::EqualEqual
-        }) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_comparison(iter)?;
-            expr = Expr::Binary(Box::from(expr), operator.kind, Box::from(right))
+    fn parse_equality(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_comparison()?;
+        while self.token.is_equality() {
+            let operator = self.token.kind.clone();
+            self.bump();
+            let right = self.parse_comparison()?;
+            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
         }
         Ok(expr)
     }
 
-    fn parse_comparison<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let mut expr = self.parse_term(iter)?;
-        while self.peek_match(iter, |token| {
-            token.kind == TokenKind::Greater
-                || token.kind == TokenKind::GreaterEqual
-                || token.kind == TokenKind::Less
-                || token.kind == TokenKind::LessEqual
-        }) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_term(iter)?;
-            expr = Expr::Binary(Box::from(expr), operator.kind, Box::from(right))
+    fn parse_comparison(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_term()?;
+        while self.token.is_comparison() {
+            let operator = self.token.kind.clone();
+            self.bump();
+            let right = self.parse_term()?;
+            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
         }
         Ok(expr)
     }
 
-    fn parse_term<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let mut expr = self.parse_factor(iter)?;
-        while self.peek_match(iter, |token| {
-            token.kind == TokenKind::Minus || token.kind == TokenKind::Plus
-        }) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_factor(iter)?;
-            expr = Expr::Binary(Box::from(expr), operator.kind, Box::from(right))
+    fn parse_term(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_factor()?;
+        while self.token.is_term() {
+            let operator = self.token.kind.clone();
+            self.bump();
+            let right = self.parse_factor()?;
+            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
         }
         Ok(expr)
     }
 
-    fn parse_factor<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let mut expr = self.parse_unary(iter)?;
-        while self.peek_match(iter, |token| {
-            token.kind == TokenKind::Slash || token.kind == TokenKind::Star
-        }) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_unary(iter)?;
-            expr = Expr::Binary(Box::from(expr), operator.kind, Box::from(right))
+    fn parse_factor(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_unary()?;
+        while self.token.is_factor() {
+            let operator = self.token.kind.clone();
+            let right = self.parse_unary()?;
+            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
         }
         Ok(expr)
     }
 
-    fn parse_unary<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        if self.peek_match(iter, |token| {
-            token.kind == TokenKind::Bang || token.kind == TokenKind::Minus
-        }) {
-            let operator = iter.next().unwrap();
-            let right = self.parse_unary(iter)?;
-            Ok(Expr::Unary(operator.kind, Box::from(right)))
+    fn parse_unary(&mut self) -> Result<Expr> {
+        if self.token.is_unary() {
+            self.bump();
+            let operator = self.token.kind.clone();
+            let right = self.parse_unary()?;
+            Ok(Expr::Unary(operator, Box::from(right)))
         } else {
-            self.parse_primary(iter)
+            self.parse_primary()
         }
     }
 
-    fn parse_primary<I: Iterator<Item = Token>>(&self, iter: &mut Peekable<I>) -> Result<Expr> {
-        let next = iter.next().ok_or(anyhow!("expected an expression"))?;
-        match next.kind {
+    fn parse_primary(&mut self) -> Result<Expr> {
+        let expr = match &self.token.kind {
             TokenKind::False => Ok(Expr::Literal(Literal::Bool(false))),
             TokenKind::True => Ok(Expr::Literal(Literal::Bool(true))),
             TokenKind::Nil => Ok(Expr::Literal(Literal::Nil)),
-            TokenKind::Number(value) => Ok(Expr::Literal(Literal::Number(value))),
-            TokenKind::String(value) => Ok(Expr::Literal(Literal::String(value))),
+            TokenKind::Number(value) => Ok(Expr::Literal(Literal::Number(*value))),
+            TokenKind::String(value) => Ok(Expr::Literal(Literal::String(value.clone()))),
             TokenKind::LeftParen => {
-                let line = next.line;
-                let expr = self.parse_expression(iter)?;
-                if self.peek_match(iter, |token| token.kind == TokenKind::RightParen) {
-                    Ok(Expr::Grouping(Box::from(expr)))
-                } else {
-                    Err(anyhow!("Expected ')' to match '(' on line {}", line))
-                }
+                let line = self.token.line;
+                let expr = self.parse_expression()?;
+                self.expect(
+                    &TokenKind::RightParen,
+                    format!("Expected ')' to match '(' on line {}", line),
+                )?;
+                Ok(Expr::Grouping(Box::from(expr)))
             }
-            TokenKind::Identifier(value) => Ok(Expr::Variable(value)),
+            TokenKind::Identifier(value) => Ok(Expr::Variable(value.clone())),
             _ => Err(anyhow!(
-                "Expected an expression, found {:?} on line {}",
-                next.kind,
-                next.line
+                "Expected an expression, found token {} on line {}",
+                self.token.kind,
+                self.token.line
             )),
-        }
+        };
+        self.bump();
+        expr
     }
 
-    /// Returns true if there is another character to peek which matches the
-    /// predicate, otherwise it returns false.
-    fn peek_match<F, I>(&self, iter: &mut Peekable<I>, pred: F) -> bool
-    where
-        F: FnOnce(&Token) -> bool,
-        I: Iterator<Item = Token>,
-    {
-        if let Some(token) = iter.peek() {
-            pred(token)
-        } else {
-            false
-        }
-    }
-
-    /// Returns true if the next character matches the predicate, otherwise it
-    /// returns false. Only consumes if the match succeeds.
-    fn consume_match<F, I>(&self, iter: &mut Peekable<I>, pred: F) -> bool
-    where
-        F: FnOnce(&Token) -> bool,
-        I: Iterator<Item = Token>,
-    {
-        if let Some(token) = iter.peek() {
-            if pred(token) {
-                iter.next();
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    }
-
-    fn consume<I>(
-        &self,
-        iter: &mut Peekable<I>,
-        kind: TokenKind,
-        message: &'static str,
-    ) -> Result<()>
-    where
-        I: Iterator<Item = Token>,
-    {
-        if let Some(token) = iter.peek() {
-            if token.kind == kind {
-                iter.next();
-                Ok(())
-            } else {
-                Err(anyhow!(message))
-            }
+    /// Expects and consumes the token `token`. Signals an error if the next
+    /// token is not `token`.
+    pub fn expect(&mut self, token: &TokenKind, message: String) -> Result<()> {
+        if self.token.kind == *token {
+            self.bump();
+            Ok(())
         } else {
             Err(anyhow!(message))
         }
+    }
+
+    /// Consumes one token (moves the cursor forward by one).
+    fn bump(&mut self) {
+        let line = self.token.line;
+        self.prev_token = std::mem::replace(
+            &mut self.token,
+            self.cursor
+                .next()
+                .unwrap_or(Token::new(TokenKind::Eof, line)),
+        );
+    }
+
+    /// Checks if the next token is `tok`, and returns `true` if so.
+    fn check(&mut self, tok: &TokenKind) -> bool {
+        self.token.kind == *tok
+    }
+
+    /// Consumes the token `token` if it exists. Returns whether the given token
+    /// was present.
+    fn eat(&mut self, token: &TokenKind) -> bool {
+        let is_present = self.check(token);
+        if is_present {
+            self.bump()
+        }
+        is_present
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_print_stmt() {
+        let tokens = vec![
+            Token::new(TokenKind::Print, 1),
+            Token::new(TokenKind::String("one".into()), 1),
+            Token::new(TokenKind::Semicolon, 1),
+            Token::new(TokenKind::Eof, 2),
+        ];
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse().unwrap();
+        let expected = vec![Stmt::Print(Expr::Literal(Literal::String("one".into())))];
+        assert_eq!(result, expected)
     }
 }
