@@ -2,13 +2,13 @@ use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug)]
 pub struct Token {
-    pub typ: TokenKind,
+    pub kind: TokenKind,
     pub line: u32,
 }
 
 impl Token {
     pub fn new(typ: TokenKind, line: u32) -> Self {
-        Token { typ, line }
+        Token { kind: typ, line }
     }
 }
 

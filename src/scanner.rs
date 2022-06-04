@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(
             tokens
                 .iter()
-                .map(|tok| tok.typ.clone())
+                .map(|tok| tok.kind.clone())
                 .collect::<Vec<TokenKind>>(),
             [
                 TokenKind::Bang,
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(
             tokens
                 .iter()
-                .map(|tok| tok.typ.clone())
+                .map(|tok| tok.kind.clone())
                 .collect::<Vec<TokenKind>>(),
             [TokenKind::LeftParen, TokenKind::RightParen, TokenKind::Eof,]
         );

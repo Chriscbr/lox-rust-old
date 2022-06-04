@@ -164,8 +164,20 @@ impl StmtVisitor<Result<()>> for Interpreter {
                     .define(name.clone(), value.unwrap_or(RuntimeValue::Nil));
                 Ok(())
             }
-            Stmt::If(_, _, _) => todo!(),
-            Stmt::While(_, _) => todo!(),
+            Stmt::If(condition, then_branch, else_branch) => {
+                if is_truthy(&self.visit_expr(condition)?) {
+                    self.visit_stmt(&then_branch)?;
+                } else if let Some(unwrapped) = else_branch {
+                    self.visit_stmt(unwrapped)?;
+                }
+                Ok(())
+            }
+            Stmt::While(condition, body) => {
+                while is_truthy(&self.visit_expr(condition)?) {
+                    self.visit_stmt(body)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -256,7 +268,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
             Expr::Unary(operator, value) => {
                 let evaluated = self.visit_expr(value)?;
                 match operator {
-                    TokenKind::Bang => Ok(RuntimeValue::Bool(is_truthy(evaluated))),
+                    TokenKind::Bang => Ok(RuntimeValue::Bool(is_truthy(&evaluated))),
                     TokenKind::Minus => match evaluated {
                         RuntimeValue::Number(x) => Ok(RuntimeValue::Number(-x)),
                         _ => Err(anyhow!("Unexpected operand after -: {}.", evaluated)),
@@ -264,16 +276,32 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                     _ => Err(anyhow!("Unexpected unary operator: {}.", operator)),
                 }
             }
-            Expr::Logical(_, _, _) => todo!(),
+            Expr::Logical(left, operator, right) => {
+                let left_val = self.visit_expr(left)?;
+                match operator {
+                    TokenKind::Or => {
+                        if is_truthy(&left_val) {
+                            return Ok(left_val);
+                        }
+                    }
+                    TokenKind::And => {
+                        if !is_truthy(&left_val) {
+                            return Ok(left_val);
+                        }
+                    }
+                    _ => return Err(anyhow!("Unexpected logical operator: {}.", operator)),
+                };
+                self.visit_expr(right)
+            }
         }
     }
 }
 
-fn is_truthy(value: RuntimeValue) -> bool {
+fn is_truthy(value: &RuntimeValue) -> bool {
     match value {
-        RuntimeValue::Number(x) => x != 0.0,
+        RuntimeValue::Number(x) => *x != 0.0,
         RuntimeValue::String(_) => true,
-        RuntimeValue::Bool(x) => x,
+        RuntimeValue::Bool(x) => *x,
         RuntimeValue::Nil => false,
     }
 }
