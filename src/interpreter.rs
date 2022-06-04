@@ -90,22 +90,24 @@ impl Environment {
 
 pub struct Interpreter {
     env: RefCell<Environment>,
+    stdout: RefCell<String>,
 }
 
 impl Default for Interpreter {
     fn default() -> Self {
         Interpreter {
             env: RefCell::new(Environment::default()),
+            stdout: RefCell::new(String::new()),
         }
     }
 }
 
 impl Interpreter {
-    pub fn interpret(&self, statements: &Vec<Stmt>) -> Result<()> {
+    pub fn interpret(&self, statements: &Vec<Stmt>) -> Result<String> {
         for stmt in statements {
             self.visit_stmt(stmt)?;
         }
-        Ok(())
+        Ok(self.stdout.take())
     }
 }
 
@@ -152,6 +154,10 @@ impl StmtVisitor<Result<()>> for Interpreter {
             Stmt::Print(expr) => {
                 let value = self.visit_expr(expr)?;
                 println!("{}", value);
+                self.stdout
+                    .borrow_mut()
+                    .push_str(value.to_string().as_str());
+                self.stdout.borrow_mut().push('\n');
                 Ok(())
             }
             Stmt::Var(name, initializer) => {

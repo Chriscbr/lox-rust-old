@@ -30,12 +30,13 @@ fn main() -> Result<()> {
     let args = Cli::from_args();
 
     match args.script {
-        Some(path) => run_file(path),
-        None => run_prompt(),
-    }
+        Some(path) => _ = run_file(path),
+        None => _ = run_prompt(),
+    };
+    Ok(())
 }
 
-fn run_file(path: PathBuf) -> Result<()> {
+fn run_file(path: PathBuf) -> Result<String> {
     let contents =
         read_to_string(&path).with_context(|| format!("could not read file {:?}", &path))?;
     run(&contents)
@@ -55,7 +56,7 @@ fn run_prompt() -> Result<()> {
     }
 }
 
-fn run(source: &str) -> Result<()> {
+fn run(source: &str) -> Result<String> {
     let scanner = scanner::Scanner::new(&source);
     let tokens = scanner.scan_tokens()?;
 
@@ -74,7 +75,84 @@ fn run(source: &str) -> Result<()> {
     // println!("{:?}", stmts);
 
     let interpreter = interpreter::Interpreter::default();
-    interpreter.interpret(&stmts)?;
+    let stdout = interpreter.interpret(&stmts)?;
 
-    Ok(())
+    Ok(stdout)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integ_tests() {
+        assert_eq!(
+            run_file("examples/fibonacci.lox".into()).unwrap(),
+            r#"0
+1
+1
+2
+3
+5
+8
+13
+21
+34
+55
+89
+144
+233
+377
+610
+987
+1597
+2584
+4181
+6765
+"#
+            .to_owned()
+        );
+
+        assert_eq!(
+            run_file("examples/stmts.lox".into()).unwrap(),
+            r#"one
+true
+3
+"#
+            .to_owned()
+        );
+
+        assert_eq!(
+            run_file("examples/scopes.lox".into()).unwrap(),
+            r#"inner a
+outer b
+global c
+outer a
+outer b
+global c
+global a
+global b
+global c
+"#
+            .to_owned()
+        );
+
+        assert_eq!(
+            run_file("examples/scopes2.lox".into()).unwrap(),
+            r#"3
+3
+1
+3
+"#
+            .to_owned()
+        );
+
+        assert_eq!(
+            run_file("examples/variables.lox".into()).unwrap(),
+            r#"3
+2
+"#
+            .to_owned()
+        );
+    }
 }
