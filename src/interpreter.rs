@@ -8,7 +8,7 @@ use anyhow::Result;
 use crate::expr::Expr;
 use crate::expr::Literal;
 use crate::stmt::Stmt;
-use crate::token::TokenType;
+use crate::token::TokenKind;
 use crate::visitor::ExprVisitor;
 use crate::visitor::StmtVisitor;
 
@@ -164,6 +164,8 @@ impl StmtVisitor<Result<()>> for Interpreter {
                     .define(name.clone(), value.unwrap_or(RuntimeValue::Nil));
                 Ok(())
             }
+            Stmt::If(_, _, _) => todo!(),
+            Stmt::While(_, _) => todo!(),
         }
     }
 }
@@ -182,58 +184,58 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 let left_val = self.visit_expr(left)?;
                 let right_val = self.visit_expr(right)?;
                 match operator {
-                    TokenType::Greater => {
+                    TokenKind::Greater => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before >: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after >: {}", right_val))?;
                         Ok(RuntimeValue::Bool(left_num > right_num))
                     }
-                    TokenType::GreaterEqual => {
+                    TokenKind::GreaterEqual => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before >=: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after >=: {}", right_val))?;
                         Ok(RuntimeValue::Bool(left_num >= right_num))
                     }
-                    TokenType::Less => {
+                    TokenKind::Less => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before <: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after <: {}", right_val))?;
                         Ok(RuntimeValue::Bool(left_num < right_num))
                     }
-                    TokenType::LessEqual => {
+                    TokenKind::LessEqual => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before <=: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after <=: {}", right_val))?;
                         Ok(RuntimeValue::Bool(left_num <= right_num))
                     }
-                    TokenType::BangEqual => Ok(RuntimeValue::Bool(left_val != right_val)),
-                    TokenType::EqualEqual => Ok(RuntimeValue::Bool(left_val == right_val)),
-                    TokenType::Minus => {
+                    TokenKind::BangEqual => Ok(RuntimeValue::Bool(left_val != right_val)),
+                    TokenKind::EqualEqual => Ok(RuntimeValue::Bool(left_val == right_val)),
+                    TokenKind::Minus => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before -: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after -: {}", right_val))?;
                         Ok(RuntimeValue::Number(left_num - right_num))
                     }
-                    TokenType::Plus => {
+                    TokenKind::Plus => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before +: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after +: {}", right_val))?;
                         Ok(RuntimeValue::Number(left_num + right_num))
                     }
-                    TokenType::Slash => {
+                    TokenKind::Slash => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before /: {}", left_val))?;
                         let right_num = right_val
                             .unwrap_number(anyhow!("Unexpected operand after /: {}", right_val))?;
                         Ok(RuntimeValue::Number(left_num / right_num))
                     }
-                    TokenType::Star => {
+                    TokenKind::Star => {
                         let left_num = left_val
                             .unwrap_number(anyhow!("Unexpected operand before *: {}", left_val))?;
                         let right_num = right_val
@@ -254,14 +256,15 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
             Expr::Unary(operator, value) => {
                 let evaluated = self.visit_expr(value)?;
                 match operator {
-                    TokenType::Bang => Ok(RuntimeValue::Bool(is_truthy(evaluated))),
-                    TokenType::Minus => match evaluated {
+                    TokenKind::Bang => Ok(RuntimeValue::Bool(is_truthy(evaluated))),
+                    TokenKind::Minus => match evaluated {
                         RuntimeValue::Number(x) => Ok(RuntimeValue::Number(-x)),
                         _ => Err(anyhow!("Unexpected operand after -: {}.", evaluated)),
                     },
                     _ => Err(anyhow!("Unexpected unary operator: {}.", operator)),
                 }
             }
+            Expr::Logical(_, _, _) => todo!(),
         }
     }
 }

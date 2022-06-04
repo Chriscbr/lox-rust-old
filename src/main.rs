@@ -73,7 +73,7 @@ fn run(source: &str) -> Result<()> {
     // for debugging
     // println!("{:?}", stmts);
 
-    let mut interpreter = interpreter::Interpreter::default();
+    let interpreter = interpreter::Interpreter::default();
     interpreter.interpret(&stmts)?;
 
     Ok(())

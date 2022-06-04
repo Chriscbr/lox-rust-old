@@ -1,4 +1,4 @@
-use crate::token::TokenType;
+use crate::token::TokenKind;
 
 #[derive(Debug)]
 pub enum Literal {
@@ -11,9 +11,10 @@ pub enum Literal {
 #[derive(Debug)]
 pub enum Expr {
     Assign(String, Box<Expr>),
-    Binary(Box<Expr>, TokenType, Box<Expr>),
+    Binary(Box<Expr>, TokenKind, Box<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
+    Logical(Box<Expr>, TokenKind, Box<Expr>),
     Variable(String),
-    Unary(TokenType, Box<Expr>),
+    Unary(TokenKind, Box<Expr>),
 }

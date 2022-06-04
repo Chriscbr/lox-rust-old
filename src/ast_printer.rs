@@ -32,6 +32,7 @@ impl ExprVisitor<String> for AstPrinter {
             Expr::Unary(operator, right) => {
                 format!("({} {})", operator, self.visit_expr(right))
             }
+            Expr::Logical(_, _, _) => todo!(),
         }
     }
 }

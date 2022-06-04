@@ -1,10 +1,10 @@
 use std::str::CharIndices;
 
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::{anyhow, Context};
 use itertools::{Itertools, MultiPeek};
 
-use crate::token::{Token, TokenType};
+use crate::token::{Token, TokenKind};
 
 type CharIter<'a> = MultiPeek<CharIndices<'a>>;
 
@@ -26,7 +26,7 @@ impl<'a> Scanner<'a> {
             tokens.push(token);
         }
 
-        tokens.push(Token::new(TokenType::Eof, "", line));
+        tokens.push(Token::new(TokenKind::Eof, line));
 
         Ok(tokens)
     }
@@ -39,56 +39,56 @@ impl<'a> Scanner<'a> {
                 // in most cases we want to break and return, but if we encounter
                 // a newline or comment, we continue the loop instead
                 break match pair {
-                    (idx, '(') => self.create_token(TokenType::LeftParen, idx, 1, line),
-                    (idx, ')') => self.create_token(TokenType::RightParen, idx, 1, line),
-                    (idx, '{') => self.create_token(TokenType::LeftBrace, idx, 1, line),
-                    (idx, '}') => self.create_token(TokenType::RightBrace, idx, 1, line),
-                    (idx, ',') => self.create_token(TokenType::Comma, idx, 1, line),
-                    (idx, '.') => self.create_token(TokenType::Dot, idx, 1, line),
-                    (idx, '-') => self.create_token(TokenType::Minus, idx, 1, line),
-                    (idx, '+') => self.create_token(TokenType::Plus, idx, 1, line),
-                    (idx, ';') => self.create_token(TokenType::Semicolon, idx, 1, line),
-                    (idx, '*') => self.create_token(TokenType::Star, idx, 1, line),
-                    (idx, '!') => {
+                    (_, '(') => self.create_token(TokenKind::LeftParen, line),
+                    (_, ')') => self.create_token(TokenKind::RightParen, line),
+                    (_, '{') => self.create_token(TokenKind::LeftBrace, line),
+                    (_, '}') => self.create_token(TokenKind::RightBrace, line),
+                    (_, ',') => self.create_token(TokenKind::Comma, line),
+                    (_, '.') => self.create_token(TokenKind::Dot, line),
+                    (_, '-') => self.create_token(TokenKind::Minus, line),
+                    (_, '+') => self.create_token(TokenKind::Plus, line),
+                    (_, ';') => self.create_token(TokenKind::Semicolon, line),
+                    (_, '*') => self.create_token(TokenKind::Star, line),
+                    (_, '!') => {
                         if self.peek_match(iter, |ch| ch == '=') {
                             iter.next();
-                            self.create_token(TokenType::BangEqual, idx, 2, line)
+                            self.create_token(TokenKind::BangEqual, line)
                         } else {
-                            self.create_token(TokenType::Bang, idx, 1, line)
+                            self.create_token(TokenKind::Bang, line)
                         }
                     }
-                    (idx, '=') => {
+                    (_, '=') => {
                         if self.peek_match(iter, |ch| ch == '=') {
                             iter.next();
-                            self.create_token(TokenType::EqualEqual, idx, 2, line)
+                            self.create_token(TokenKind::EqualEqual, line)
                         } else {
-                            self.create_token(TokenType::Equal, idx, 1, line)
+                            self.create_token(TokenKind::Equal, line)
                         }
                     }
-                    (idx, '<') => {
+                    (_, '<') => {
                         if self.peek_match(iter, |ch| ch == '=') {
                             iter.next();
-                            self.create_token(TokenType::LessEqual, idx, 2, line)
+                            self.create_token(TokenKind::LessEqual, line)
                         } else {
-                            self.create_token(TokenType::Less, idx, 1, line)
+                            self.create_token(TokenKind::Less, line)
                         }
                     }
-                    (idx, '>') => {
+                    (_, '>') => {
                         if self.peek_match(iter, |ch| ch == '=') {
                             iter.next();
-                            self.create_token(TokenType::GreaterEqual, idx, 2, line)
+                            self.create_token(TokenKind::GreaterEqual, line)
                         } else {
-                            self.create_token(TokenType::Greater, idx, 1, line)
+                            self.create_token(TokenKind::Greater, line)
                         }
                     }
-                    (idx, '/') => {
+                    (_, '/') => {
                         if self.peek_match(iter, |ch| ch == '/') {
                             iter.next();
                             // A comment goes until the end of the line
                             self.read_to_end_of_line(iter);
                             continue;
                         } else {
-                            self.create_token(TokenType::Slash, idx, 1, line)
+                            self.create_token(TokenKind::Slash, line)
                         }
                     }
                     (_, '"') => self.parse_string(iter, line),
@@ -115,14 +115,8 @@ impl<'a> Scanner<'a> {
     }
 
     // helper method
-    fn create_token(
-        &self,
-        typ: TokenType,
-        idx: usize,
-        len: usize,
-        line: &u32,
-    ) -> Result<Option<Token>> {
-        Ok(Some(Token::new(typ, &self.source[idx..idx + len], *line)))
+    fn create_token(&self, typ: TokenKind, line: &u32) -> Result<Option<Token>> {
+        Ok(Some(Token::new(typ, *line)))
     }
 
     /// Returns true if there is another character to peek which matches the
@@ -157,7 +151,10 @@ impl<'a> Scanner<'a> {
 
         // next character is the quote
         match iter.next() {
-            Some((idx, _)) => self.create_token(TokenType::String, idx - len, len + 1, &start),
+            Some((idx, _)) => {
+                let lexeme = self.source[idx - len + 1..idx].to_owned();
+                self.create_token(TokenKind::String(lexeme), &start)
+            }
             None => Err(anyhow!(
                 "end of line while scanning string literal on line {}",
                 start
@@ -192,7 +189,11 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        self.create_token(TokenType::Number, idx, len, line)
+        let value: f64 = self.source[idx..idx + len]
+            .parse()
+            .with_context(|| format!("unable to parse number on line {}", line))
+            .unwrap();
+        self.create_token(TokenKind::Number(value), line)
     }
 
     fn parse_identifer(
@@ -208,26 +209,26 @@ impl<'a> Scanner<'a> {
         }
 
         let typ = match &self.source[idx..idx + len] {
-            "and" => TokenType::And,
-            "class" => TokenType::Class,
-            "else" => TokenType::Else,
-            "false" => TokenType::False,
-            "for" => TokenType::For,
-            "fun" => TokenType::Fun,
-            "if" => TokenType::If,
-            "nil" => TokenType::Nil,
-            "or" => TokenType::Or,
-            "print" => TokenType::Print,
-            "return" => TokenType::Return,
-            "super" => TokenType::Super,
-            "this" => TokenType::This,
-            "true" => TokenType::True,
-            "var" => TokenType::Var,
-            "while" => TokenType::While,
-            _ => TokenType::Identifier,
+            "and" => TokenKind::And,
+            "class" => TokenKind::Class,
+            "else" => TokenKind::Else,
+            "false" => TokenKind::False,
+            "for" => TokenKind::For,
+            "fun" => TokenKind::Fun,
+            "if" => TokenKind::If,
+            "nil" => TokenKind::Nil,
+            "or" => TokenKind::Or,
+            "print" => TokenKind::Print,
+            "return" => TokenKind::Return,
+            "super" => TokenKind::Super,
+            "this" => TokenKind::This,
+            "true" => TokenKind::True,
+            "var" => TokenKind::Var,
+            "while" => TokenKind::While,
+            _ => TokenKind::Identifier(self.source[idx..idx + len].to_owned()),
         };
 
-        self.create_token(typ, idx, len, line)
+        self.create_token(typ, line)
     }
 }
 
@@ -252,13 +253,16 @@ mod tests {
         let scanner = Scanner::new("!!=!==");
         let tokens = scanner.scan_tokens().unwrap();
         assert_eq!(
-            tokens.iter().map(|tok| tok.typ).collect::<Vec<TokenType>>(),
+            tokens
+                .iter()
+                .map(|tok| tok.typ.clone())
+                .collect::<Vec<TokenKind>>(),
             [
-                TokenType::Bang,
-                TokenType::BangEqual,
-                TokenType::BangEqual,
-                TokenType::Equal,
-                TokenType::Eof,
+                TokenKind::Bang,
+                TokenKind::BangEqual,
+                TokenKind::BangEqual,
+                TokenKind::Equal,
+                TokenKind::Eof,
             ]
         );
     }
@@ -268,8 +272,11 @@ mod tests {
         let scanner = Scanner::new("() // hello\n// last line");
         let tokens = scanner.scan_tokens().unwrap();
         assert_eq!(
-            tokens.iter().map(|tok| tok.typ).collect::<Vec<TokenType>>(),
-            [TokenType::LeftParen, TokenType::RightParen, TokenType::Eof,]
+            tokens
+                .iter()
+                .map(|tok| tok.typ.clone())
+                .collect::<Vec<TokenKind>>(),
+            [TokenKind::LeftParen, TokenKind::RightParen, TokenKind::Eof,]
         );
     }
 }
