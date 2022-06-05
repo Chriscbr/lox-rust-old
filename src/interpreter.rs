@@ -5,12 +5,10 @@ use std::fmt;
 use anyhow::anyhow;
 use anyhow::Result;
 
-use crate::expr::Expr;
-use crate::expr::Literal;
-use crate::stmt::Stmt;
-use crate::token::TokenKind;
-use crate::visitor::ExprVisitor;
-use crate::visitor::StmtVisitor;
+use crate::{
+    expr::Expr, expr::Literal, stmt::Stmt, token::TokenKind, visitor::ExprVisitor,
+    visitor::StmtVisitor,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeValue {

@@ -1,9 +1,16 @@
 [package]
 name = "lox-rust"
 version = "0.1.0"
+authors = ["Christopher Rybicki <crybicki98@gmail.com>"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "lox_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lox_bin"
+path = "src/bin.rs"
 
 [dependencies]
 structopt = "0.3.25"

@@ -14,34 +14,14 @@ mod token;
 mod visitor;
 
 use anyhow::{Context, Result};
-use structopt::StructOpt;
 
-/// Run a lox script.
-#[derive(StructOpt)]
-struct Cli {
-    /// Path to a lox file.
-    #[structopt(parse(from_os_str))]
-    script: Option<std::path::PathBuf>,
-}
-
-fn main() -> Result<()> {
-    env_logger::init();
-
-    let args = Cli::from_args();
-
-    match args.script {
-        Some(path) => run_file(path).map(|_| ()),
-        None => run_prompt(),
-    }
-}
-
-fn run_file(path: PathBuf) -> Result<String> {
+pub fn run_file(path: PathBuf) -> Result<String> {
     let contents =
         read_to_string(&path).with_context(|| format!("could not read file {:?}", &path))?;
     run(&contents)
 }
 
-fn run_prompt() -> Result<()> {
+pub fn run_prompt() -> Result<()> {
     let mut reader = BufReader::new(stdin());
     loop {
         let mut buffer = String::new();
@@ -55,7 +35,7 @@ fn run_prompt() -> Result<()> {
     }
 }
 
-fn run(source: &str) -> Result<String> {
+pub fn run(source: &str) -> Result<String> {
     let scanner = scanner::Scanner::new(&source);
     let tokens = scanner.scan_tokens()?;
 
