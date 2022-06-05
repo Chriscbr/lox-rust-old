@@ -64,6 +64,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unicode_support() {
+        assert_eq!(run(r#"print "Hello, 世界";"#).unwrap(), "Hello, 世界\n");
+    }
+
+    #[test]
     fn integ_tests() {
         assert_eq!(
             run_file("examples/fibonacci.lox".into()).unwrap(),

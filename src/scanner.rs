@@ -139,25 +139,21 @@ impl<'a> Scanner<'a> {
     }
 
     fn parse_string(&self, iter: &mut CharIter, line: &mut u32) -> Result<Option<Token>> {
-        let start = *line;
-        let mut len = 1;
+        let mut lexeme = String::new();
         while self.peek_match(iter, |ch| ch != '"') {
-            let pair = iter.next().unwrap();
-            if pair.1 == '\n' {
+            let (_, char) = iter.next().unwrap();
+            if char == '\n' {
                 *line += 1;
             }
-            len += 1;
+            lexeme.push(char);
         }
 
         // next character is the quote
         match iter.next() {
-            Some((idx, _)) => {
-                let lexeme = self.source[idx - len + 1..idx].to_owned();
-                self.create_token(TokenKind::String(lexeme), &start)
-            }
+            Some(_) => self.create_token(TokenKind::String(lexeme), line),
             None => Err(anyhow!(
                 "end of line while scanning string literal on line {}",
-                start
+                line
             )),
         }
     }
