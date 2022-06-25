@@ -72,71 +72,35 @@ mod tests {
     fn integ_tests() {
         assert_eq!(
             run_file("examples/fibonacci.lox".into()).unwrap(),
-            r#"0
-1
-1
-2
-3
-5
-8
-13
-21
-34
-55
-89
-144
-233
-377
-610
-987
-1597
-2584
-4181
-6765
-"#
-            .to_owned()
+            vec![
+                "0", "1", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "144", "233",
+                "377", "610", "987", "1597", "2584", "4181", "6765", ""
+            ]
+            .join("\n")
         );
 
         assert_eq!(
             run_file("examples/stmts.lox".into()).unwrap(),
-            r#"one
-true
-3
-"#
-            .to_owned()
+            vec!["one", "true", "3", ""].join("\n")
         );
 
         assert_eq!(
             run_file("examples/scopes.lox".into()).unwrap(),
-            r#"inner a
-outer b
-global c
-outer a
-outer b
-global c
-global a
-global b
-global c
-"#
-            .to_owned()
+            vec![
+                "inner a", "outer b", "global c", "outer a", "outer b", "global c", "global a",
+                "global b", "global c", ""
+            ]
+            .join("\n")
         );
 
         assert_eq!(
             run_file("examples/scopes2.lox".into()).unwrap(),
-            r#"3
-3
-1
-3
-"#
-            .to_owned()
+            vec!["3", "3", "1", "3", ""].join("\n")
         );
 
         assert_eq!(
             run_file("examples/variables.lox".into()).unwrap(),
-            r#"3
-2
-"#
-            .to_owned()
+            vec!["3", "2", ""].join("\n")
         );
     }
 }
