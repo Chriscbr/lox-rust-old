@@ -182,6 +182,7 @@ impl StmtVisitor<Result<()>> for Interpreter {
                 }
                 Ok(())
             }
+            Stmt::Function(name, parameters, body) => todo!(),
         }
     }
 }
@@ -296,6 +297,16 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                     _ => return Err(anyhow!("Unexpected logical operator: {}.", operator)),
                 };
                 self.visit_expr(right)
+            }
+            Expr::Call(callee, arguments) => {
+                // let callee_val = self.visit_expr(callee)?;
+
+                // let arguments = arguments
+                //     .iter()
+                //     .map(|arg| self.visit_expr(arguments))
+                //     .collect();
+
+                todo!()
             }
         }
     }

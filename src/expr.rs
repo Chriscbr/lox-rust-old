@@ -12,6 +12,7 @@ pub enum Literal {
 pub enum Expr {
     Assign(String, Box<Expr>),
     Binary(Box<Expr>, TokenKind, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
     Logical(Box<Expr>, TokenKind, Box<Expr>),

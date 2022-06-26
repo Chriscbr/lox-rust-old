@@ -83,7 +83,9 @@ impl Parser {
     }
 
     fn parse_declaration(&mut self) -> Result<Stmt> {
-        if self.eat(&TokenKind::Var) {
+        if self.eat(&TokenKind::Fun) {
+            self.parse_function()
+        } else if self.eat(&TokenKind::Var) {
             self.parse_var_declaration()
         } else {
             self.parse_statement()
@@ -223,16 +225,7 @@ impl Parser {
 
     fn parse_var_declaration(&mut self) -> Result<Stmt> {
         let var_line = self.prev_token.line;
-        let identifier = match &self.token.kind {
-            TokenKind::Identifier(value) => value.clone(),
-            _ => {
-                return Err(anyhow!(
-                    "Expected an expression, found {:?} on line {}",
-                    self.token.kind,
-                    self.token.line
-                ))
-            }
-        };
+        let identifier = self.expect_identifier()?;
         self.bump();
         if !self.eat(&TokenKind::Equal) {
             if self.eat(&TokenKind::Semicolon) {
@@ -257,6 +250,36 @@ impl Parser {
 
     fn parse_expression(&mut self) -> Result<Expr> {
         self.parse_assignment()
+    }
+
+    fn parse_function(&mut self) -> Result<Stmt> {
+        let name = self.expect_identifier()?;
+        self.expect(
+            &TokenKind::LeftParen,
+            format!("Expected '(' after {} on line {}", name, self.token.line),
+        )?;
+        let mut parameters = vec![];
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                if parameters.len() >= 255 {
+                    return Err(anyhow!("Can't have more than 255 parameters."));
+                }
+                parameters.push(self.expect_identifier()?);
+                if !self.check(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(
+            &TokenKind::RightParen,
+            "Expect ')' after parameters.".into(),
+        );
+        self.expect(
+            &TokenKind::LeftBrace,
+            format!("Expected '{{' before function body."),
+        );
+        let body = self.parse_block()?;
+        Ok(Stmt::Function(name, parameters, body))
     }
 
     fn parse_assignment(&mut self) -> Result<Expr> {
@@ -343,8 +366,42 @@ impl Parser {
             let right = self.parse_unary()?;
             Ok(Expr::Unary(operator, Box::from(right)))
         } else {
-            self.parse_primary()
+            self.parse_call()
         }
+    }
+
+    fn parse_call(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_primary()?;
+
+        loop {
+            if self.check(&TokenKind::LeftParen) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr> {
+        let mut arguments = vec![];
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                if arguments.len() >= 255 {
+                    return Err(anyhow!("Can't have more than 255 arguments."));
+                }
+                arguments.push(self.parse_expression()?);
+                if !self.check(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(
+            &TokenKind::RightParen,
+            "Expected ')' after arguments.".into(),
+        )?;
+        Ok(Expr::Call(Box::new(callee), arguments))
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
@@ -382,6 +439,21 @@ impl Parser {
             Ok(())
         } else {
             Err(anyhow!(message))
+        }
+    }
+
+    /// Expects and consumes the token `token` if it is an identifier, and
+    /// signals an error otherwise.
+    pub fn expect_identifier(&mut self) -> Result<String> {
+        match &self.token.kind {
+            TokenKind::Identifier(value) => Ok(value.clone()),
+            _ => {
+                return Err(anyhow!(
+                    "Expected an identifier, found {:?} on line {}",
+                    self.token.kind,
+                    self.token.line
+                ))
+            }
         }
     }
 
