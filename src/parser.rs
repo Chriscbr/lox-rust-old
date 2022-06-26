@@ -28,30 +28,31 @@ impl Cursor {
     fn new(stream: Vec<Token>) -> Self {
         Cursor { stream, index: 0 }
     }
-    pub fn next_ref(&mut self) -> Option<&Token> {
-        self.stream.get(self.index).map(|token| {
-            self.index += 1;
-            token
-        })
-    }
 
-    pub fn index(&self) -> usize {
-        self.index
-    }
+    // pub fn next_ref(&mut self) -> Option<&Token> {
+    //     self.stream.get(self.index).map(|token| {
+    //         self.index += 1;
+    //         token
+    //     })
+    // }
 
-    pub fn append(&mut self, new_stream: Vec<Token>) {
-        if new_stream.is_empty() {
-            return;
-        }
-        let index = self.index;
-        let stream = std::mem::take(&mut self.stream);
-        *self = Cursor::new(vec![stream, new_stream].concat());
-        self.index = index;
-    }
+    // pub fn index(&self) -> usize {
+    //     self.index
+    // }
 
-    pub fn look_ahead(&self, n: usize) -> Option<&Token> {
-        self.stream[self.index..].get(n).map(|token| token)
-    }
+    // pub fn append(&mut self, new_stream: Vec<Token>) {
+    //     if new_stream.is_empty() {
+    //         return;
+    //     }
+    //     let index = self.index;
+    //     let stream = std::mem::take(&mut self.stream);
+    //     *self = Cursor::new(vec![stream, new_stream].concat());
+    //     self.index = index;
+    // }
+
+    // pub fn look_ahead(&self, n: usize) -> Option<&Token> {
+    //     self.stream[self.index..].get(n).map(|token| token)
+    // }
 }
 
 #[derive(Debug)]
