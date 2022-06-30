@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::interpreter::RuntimeValue;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     pub enclosing: Option<Box<Environment>>,
     values: HashMap<String, RuntimeValue>,
