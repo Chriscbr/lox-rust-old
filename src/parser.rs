@@ -273,11 +273,11 @@ impl Parser {
         self.expect(
             &TokenKind::RightParen,
             "Expect ')' after parameters.".into(),
-        );
+        )?;
         self.expect(
             &TokenKind::LeftBrace,
             format!("Expected '{{' before function body."),
-        );
+        )?;
         let body = self.parse_block()?;
         Ok(Stmt::Function(name, parameters, body))
     }
