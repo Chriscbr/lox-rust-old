@@ -277,16 +277,33 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                     argument_vals.push(self.visit_expr(arg)?);
                 }
 
-                // TODO: check if argument arity matches
+                // TODO: extract this to a function
 
-                match callee_val {
-                    RuntimeValue::Callable(_ast, _closure) => {
-                        // TODO: finish callable logic
-                        // construct environment from closure and arguments
-                        // execute code block with the environment
-                        Ok(RuntimeValue::Number(123.0))
+                if let RuntimeValue::Callable(ast, closure) = callee_val {
+                    if let Stmt::Function(_name, parameters, _body) = &ast {
+                        if parameters.len() != argument_vals.len() {
+                            return Err(anyhow!(format!(
+                                "Expected {} arguments but got {}.",
+                                parameters.len(),
+                                argument_vals.len()
+                            )));
+                        }
+
+                        let mut environment = Environment::default();
+                        environment.enclosing = Some(Box::new(closure));
+                        for (param, arg) in std::iter::zip(parameters, argument_vals) {
+                            environment.define(param.clone(), arg);
+                        }
+
+                        // TODO: execute code block with the environment
+                        Ok(RuntimeValue::Nil)
+                    } else {
+                        Err(anyhow!(
+                            "Compiler error: invalid function found in callable."
+                        ))
                     }
-                    _ => Err(anyhow!("Unexpected callee: {}.", callee_val)),
+                } else {
+                    Err(anyhow!("Can only call functions and classes."))
                 }
             }
         }
