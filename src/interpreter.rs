@@ -10,12 +10,14 @@ use crate::{
     visitor::StmtVisitor,
 };
 
+// TODO: remove cloneable?
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeValue {
+    Bool(bool),
+    Callable(Stmt, Environment),
+    Nil,
     Number(f64),
     String(String),
-    Bool(bool),
-    Nil,
 }
 
 impl Eq for RuntimeValue {}
@@ -23,10 +25,17 @@ impl Eq for RuntimeValue {}
 impl fmt::Display for RuntimeValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            RuntimeValue::Bool(x) => write!(f, "{}", x),
+            RuntimeValue::Callable(ast, _closure) => {
+                let name = match &ast {
+                    &Stmt::Function(name, _parameters, _body) => name,
+                    _ => panic!("Unexpected function"),
+                };
+                write!(f, "<fn {}>", name)
+            }
+            RuntimeValue::Nil => write!(f, "nil"),
             RuntimeValue::Number(x) => write!(f, "{}", x),
             RuntimeValue::String(x) => write!(f, "{}", x),
-            RuntimeValue::Bool(x) => write!(f, "{}", x),
-            RuntimeValue::Nil => write!(f, "nil"),
         }
     }
 }
@@ -137,7 +146,14 @@ impl StmtVisitor<Result<()>> for Interpreter {
                 }
                 Ok(())
             }
-            Stmt::Function(name, parameters, body) => todo!(),
+            Stmt::Function(name, parameters, body) => {
+                let function = Stmt::Function(name.clone(), parameters.clone(), body.clone());
+
+                // TODO: sanity check if this makes sense?
+                let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
+                self.env.borrow_mut().define(name.clone(), callable);
+                Ok(())
+            }
         }
     }
 }
@@ -254,14 +270,24 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 self.visit_expr(right)
             }
             Expr::Call(callee, arguments) => {
-                // let callee_val = self.visit_expr(callee)?;
+                let callee_val = self.visit_expr(callee)?;
 
-                // let arguments = arguments
-                //     .iter()
-                //     .map(|arg| self.visit_expr(arguments))
-                //     .collect();
+                let mut argument_vals: Vec<RuntimeValue> = vec![];
+                for arg in arguments {
+                    argument_vals.push(self.visit_expr(arg)?);
+                }
 
-                todo!()
+                // TODO: check if argument arity matches
+
+                match callee_val {
+                    RuntimeValue::Callable(_ast, _closure) => {
+                        // TODO: finish callable logic
+                        // construct environment from closure and arguments
+                        // execute code block with the environment
+                        Ok(RuntimeValue::Number(123.0))
+                    }
+                    _ => Err(anyhow!("Unexpected callee: {}.", callee_val)),
+                }
             }
         }
     }
@@ -269,10 +295,11 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
 
 fn is_truthy(value: &RuntimeValue) -> bool {
     match value {
+        RuntimeValue::Bool(x) => *x,
+        RuntimeValue::Callable(_, _) => true,
+        RuntimeValue::Nil => false,
         RuntimeValue::Number(x) => *x != 0.0,
         RuntimeValue::String(_) => true,
-        RuntimeValue::Bool(x) => *x,
-        RuntimeValue::Nil => false,
     }
 }
 
