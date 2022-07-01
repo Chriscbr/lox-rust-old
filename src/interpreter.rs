@@ -81,7 +81,7 @@ impl Interpreter {
         arguments: Vec<RuntimeValue>,
     ) -> Result<RuntimeValue> {
         if let RuntimeValue::Callable(ast, closure) = callee {
-            if let Stmt::Function(_name, parameters, _body) = &ast {
+            if let Stmt::Function(_name, parameters, body) = &ast {
                 if parameters.len() != arguments.len() {
                     return Err(anyhow!(
                         "Expected {} arguments but got {}.",
@@ -96,7 +96,19 @@ impl Interpreter {
                     environment.define(&mut self.variables.borrow_mut(), param.clone(), arg);
                 }
 
-                // TODO: execute code block with the environment
+                // replace the Interpreter's current environment with the empty
+                // environment, returning the old one
+                let old_env = self.env.replace(environment);
+
+                // evaluate each statement (within our updated scope)
+                for sub_stmt in body {
+                    self.visit_stmt(sub_stmt)?;
+                }
+
+                self.env.replace(old_env);
+
+                // TODO: implement return values
+
                 Ok(RuntimeValue::Nil)
             } else {
                 Err(anyhow!(
@@ -186,12 +198,24 @@ impl StmtVisitor<Result<()>> for Interpreter {
             }
             Stmt::Function(name, parameters, body) => {
                 let function = Stmt::Function(name.clone(), parameters.clone(), body.clone());
-                let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
+
+                // initially bind function name to "nil" value so that it exists
+                // in the function's closure so that recursion works
                 self.env.borrow_mut().define(
                     &mut self.variables.borrow_mut(),
                     name.clone(),
-                    callable,
+                    RuntimeValue::Nil,
                 );
+
+                let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
+
+                // update the function name's binding to constructed Callable
+                // value
+                self.env.borrow_mut().assign(
+                    &mut self.variables.borrow_mut(),
+                    name.clone(),
+                    callable,
+                )?;
                 Ok(())
             }
         }
@@ -252,11 +276,25 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                         Ok(RuntimeValue::Number(left_num - right_num))
                     }
                     TokenKind::Plus => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before +: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after +: {}", right_val))?;
-                        Ok(RuntimeValue::Number(left_num + right_num))
+                        if let RuntimeValue::Number(left_num) = left_val {
+                            if let RuntimeValue::Number(right_num) = right_val {
+                                return Ok(RuntimeValue::Number(left_num + right_num));
+                            }
+                        }
+
+                        if let RuntimeValue::String(ref left_str) = left_val {
+                            if let RuntimeValue::String(right_str) = right_val {
+                                let mut new_str = left_str.clone();
+                                new_str.push_str(&right_str);
+                                return Ok(RuntimeValue::String(new_str));
+                            }
+                        }
+
+                        Err(anyhow!(
+                            "Unexpected operants for + (must both be strings or numbers): {}, {}",
+                            left_val,
+                            right_val
+                        ))
                     }
                     TokenKind::Slash => {
                         let left_num = left_val
