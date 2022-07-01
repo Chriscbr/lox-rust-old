@@ -74,6 +74,39 @@ impl Interpreter {
         }
         Ok(self.stdout.take())
     }
+
+    fn invoke_function(
+        &self,
+        callee: RuntimeValue,
+        arguments: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue> {
+        if let RuntimeValue::Callable(ast, closure) = callee {
+            if let Stmt::Function(_name, parameters, _body) = &ast {
+                if parameters.len() != arguments.len() {
+                    return Err(anyhow!(
+                        "Expected {} arguments but got {}.",
+                        parameters.len(),
+                        arguments.len()
+                    ));
+                }
+
+                let mut environment = Environment::default();
+                environment.enclosing = Some(Box::new(closure));
+                for (param, arg) in std::iter::zip(parameters, arguments) {
+                    environment.define(&mut self.variables.borrow_mut(), param.clone(), arg);
+                }
+
+                // TODO: execute code block with the environment
+                Ok(RuntimeValue::Nil)
+            } else {
+                Err(anyhow!(
+                    "Compiler error: invalid function found in callable."
+                ))
+            }
+        } else {
+            Err(anyhow!("Can only call functions and classes."))
+        }
+    }
 }
 
 impl StmtVisitor<Result<()>> for Interpreter {
@@ -153,8 +186,6 @@ impl StmtVisitor<Result<()>> for Interpreter {
             }
             Stmt::Function(name, parameters, body) => {
                 let function = Stmt::Function(name.clone(), parameters.clone(), body.clone());
-
-                // TODO: sanity check if this makes sense?
                 let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
                 self.env.borrow_mut().define(
                     &mut self.variables.borrow_mut(),
@@ -288,38 +319,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                     argument_vals.push(self.visit_expr(arg)?);
                 }
 
-                // TODO: extract this to a function
-
-                if let RuntimeValue::Callable(ast, closure) = callee_val {
-                    if let Stmt::Function(_name, parameters, _body) = &ast {
-                        if parameters.len() != argument_vals.len() {
-                            return Err(anyhow!(
-                                "Expected {} arguments but got {}.",
-                                parameters.len(),
-                                argument_vals.len()
-                            ));
-                        }
-
-                        let mut environment = Environment::default();
-                        environment.enclosing = Some(Box::new(closure));
-                        for (param, arg) in std::iter::zip(parameters, argument_vals) {
-                            environment.define(
-                                &mut self.variables.borrow_mut(),
-                                param.clone(),
-                                arg,
-                            );
-                        }
-
-                        // TODO: execute code block with the environment
-                        Ok(RuntimeValue::Nil)
-                    } else {
-                        Err(anyhow!(
-                            "Compiler error: invalid function found in callable."
-                        ))
-                    }
-                } else {
-                    Err(anyhow!("Can only call functions and classes."))
-                }
+                self.invoke_function(callee_val, argument_vals)
             }
         }
     }
