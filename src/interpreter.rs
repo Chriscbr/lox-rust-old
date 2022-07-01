@@ -3,6 +3,7 @@ use std::fmt;
 
 use anyhow::anyhow;
 use anyhow::Result;
+use generational_arena::Arena;
 
 use crate::env::Environment;
 use crate::{
@@ -52,6 +53,7 @@ impl RuntimeValue {
 
 pub struct Interpreter {
     env: RefCell<Environment>,
+    variables: RefCell<Arena<RuntimeValue>>,
     stdout: RefCell<String>,
 }
 
@@ -59,6 +61,7 @@ impl Default for Interpreter {
     fn default() -> Self {
         Interpreter {
             env: RefCell::new(Environment::default()),
+            variables: RefCell::new(Arena::new()),
             stdout: RefCell::new(String::new()),
         }
     }
@@ -127,9 +130,11 @@ impl StmtVisitor<Result<()>> for Interpreter {
                     Some(expr) => Some(self.visit_expr(&expr)?),
                     None => None,
                 };
-                self.env
-                    .borrow_mut()
-                    .define(name.clone(), value.unwrap_or(RuntimeValue::Nil));
+                self.env.borrow_mut().define(
+                    &mut self.variables.borrow_mut(),
+                    name.clone(),
+                    value.unwrap_or(RuntimeValue::Nil),
+                );
                 Ok(())
             }
             Stmt::If(condition, then_branch, else_branch) => {
@@ -151,7 +156,11 @@ impl StmtVisitor<Result<()>> for Interpreter {
 
                 // TODO: sanity check if this makes sense?
                 let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
-                self.env.borrow_mut().define(name.clone(), callable);
+                self.env.borrow_mut().define(
+                    &mut self.variables.borrow_mut(),
+                    name.clone(),
+                    callable,
+                );
                 Ok(())
             }
         }
@@ -163,9 +172,11 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
         match &expr {
             Expr::Assign(name, value) => {
                 let evaluated = self.visit_expr(value)?;
-                self.env
-                    .borrow_mut()
-                    .assign(name.to_owned(), evaluated.clone())?;
+                self.env.borrow_mut().assign(
+                    &mut self.variables.borrow_mut(),
+                    name.to_owned(),
+                    evaluated.clone(),
+                )?;
                 Ok(evaluated)
             }
             Expr::Binary(left, operator, right) => {
@@ -240,7 +251,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 Literal::Bool(x) => Ok(RuntimeValue::Bool(*x)),
                 Literal::Nil => Ok(RuntimeValue::Nil),
             },
-            Expr::Variable(name) => self.env.borrow().get(name),
+            Expr::Variable(name) => self.env.borrow().get(&self.variables.borrow_mut(), name),
             Expr::Unary(operator, value) => {
                 let evaluated = self.visit_expr(value)?;
                 match operator {
@@ -282,17 +293,21 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 if let RuntimeValue::Callable(ast, closure) = callee_val {
                     if let Stmt::Function(_name, parameters, _body) = &ast {
                         if parameters.len() != argument_vals.len() {
-                            return Err(anyhow!(format!(
+                            return Err(anyhow!(
                                 "Expected {} arguments but got {}.",
                                 parameters.len(),
                                 argument_vals.len()
-                            )));
+                            ));
                         }
 
                         let mut environment = Environment::default();
                         environment.enclosing = Some(Box::new(closure));
                         for (param, arg) in std::iter::zip(parameters, argument_vals) {
-                            environment.define(param.clone(), arg);
+                            environment.define(
+                                &mut self.variables.borrow_mut(),
+                                param.clone(),
+                                arg,
+                            );
                         }
 
                         // TODO: execute code block with the environment
