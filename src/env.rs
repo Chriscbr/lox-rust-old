@@ -2,13 +2,15 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use anyhow::Result;
+use generational_arena::Arena;
+use generational_arena::Index;
 
 use crate::interpreter::RuntimeValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     pub enclosing: Option<Box<Environment>>,
-    values: HashMap<String, RuntimeValue>,
+    values: HashMap<String, Index>,
 }
 
 impl Default for Environment {
@@ -20,31 +22,57 @@ impl Default for Environment {
     }
 }
 
+// TODO: extract out "arena" from methods
+
 impl Environment {
-    pub fn define(&mut self, name: String, value: RuntimeValue) -> () {
-        self.values.insert(name, value);
+    pub fn define(
+        &mut self,
+        arena: &mut Arena<RuntimeValue>,
+        name: String,
+        value: RuntimeValue,
+    ) -> () {
+        let index = arena.insert(value);
+        self.values.insert(name, index);
     }
 
-    pub fn get(&self, name: &String) -> Result<RuntimeValue> {
-        if let Some(value) = self.values.get(name) {
-            return Ok(value.clone());
+    pub fn get_idx(&self, arena: &Arena<RuntimeValue>, name: &String) -> Result<Index> {
+        if let Some(idx) = self.values.get(name) {
+            return Ok(*idx);
         }
 
         if let Some(enclosing) = &self.enclosing {
-            return Ok(enclosing.get(name)?);
+            return Ok(enclosing.get_idx(arena, name)?);
         } else {
             Err(anyhow!("Undefined variable {}.", name))
         }
     }
 
-    pub fn assign(&mut self, name: String, value: RuntimeValue) -> Result<()> {
-        if let Some(_) = self.values.get(&name) {
-            self.values.insert(name, value);
-            return Ok(());
+    pub fn get(&self, arena: &Arena<RuntimeValue>, name: &String) -> Result<RuntimeValue> {
+        let index = self.get_idx(arena, name)?;
+        if let Some(value) = arena.get(index) {
+            return Ok(value.clone());
+        } else {
+            return Err(anyhow!("Variable {} unexpectedly deallocated.", name));
+        }
+    }
+
+    pub fn assign(
+        &mut self,
+        arena: &mut Arena<RuntimeValue>,
+        name: String,
+        value: RuntimeValue,
+    ) -> Result<()> {
+        if let Some(index) = self.values.get(&name) {
+            if let Some(old_value) = arena.get_mut(*index) {
+                *old_value = value;
+                return Ok(());
+            } else {
+                return Err(anyhow!("Variable {} unexpectedly deallocated.", name));
+            }
         }
 
         if let Some(enclosing) = &mut self.enclosing {
-            return Ok(enclosing.assign(name, value)?);
+            return Ok(enclosing.assign(arena, name, value)?);
         } else {
             Err(anyhow!("Undefined variable {}.", name))
         }
