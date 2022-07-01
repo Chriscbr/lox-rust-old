@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn integ_tests() {
+    fn integ_fibonacci() {
         assert_eq!(
             run_file("examples/fibonacci.lox".into()).unwrap(),
             vec![
@@ -79,12 +79,18 @@ mod tests {
             ]
             .join("\n")
         );
+    }
 
+    #[test]
+    fn integ_stmts() {
         assert_eq!(
             run_file("examples/stmts.lox".into()).unwrap(),
             vec!["one", "true", "3", ""].join("\n")
         );
+    }
 
+    #[test]
+    fn integ_scopes() {
         assert_eq!(
             run_file("examples/scopes.lox".into()).unwrap(),
             vec![
@@ -93,15 +99,61 @@ mod tests {
             ]
             .join("\n")
         );
+    }
 
+    #[test]
+    fn integ_scopes2() {
         assert_eq!(
             run_file("examples/scopes2.lox".into()).unwrap(),
             vec!["3", "3", "1", "3", ""].join("\n")
         );
+    }
 
+    #[test]
+    fn integ_scopes3() {
+        assert_eq!(
+            run_file("examples/scopes3.lox".into()).unwrap(),
+            vec!["local", ""].join("\n")
+        );
+    }
+
+    #[test]
+    fn integ_scopes4() {
+        assert_eq!(
+            run_file("examples/scopes4.lox".into()).unwrap(),
+            vec!["global", "global", ""].join("\n")
+        );
+    }
+
+    #[test]
+    fn integ_variables() {
         assert_eq!(
             run_file("examples/variables.lox".into()).unwrap(),
             vec!["3", "2", ""].join("\n")
+        );
+    }
+
+    #[test]
+    fn integ_functions1() {
+        assert_eq!(
+            run_file("examples/functions1.lox".into()).unwrap(),
+            vec!["6", ""].join("\n")
+        );
+    }
+
+    #[test]
+    fn integ_functions2() {
+        assert_eq!(
+            run_file("examples/functions2.lox".into()).unwrap(),
+            vec!["1", "2", "3", ""].join("\n")
+        );
+    }
+
+    #[test]
+    fn integ_functions3() {
+        assert_eq!(
+            run_file("examples/functions3.lox".into()).unwrap(),
+            vec!["Hi, Dear Reader!", ""].join("\n")
         );
     }
 }

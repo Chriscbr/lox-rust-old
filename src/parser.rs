@@ -226,7 +226,6 @@ impl Parser {
     fn parse_var_declaration(&mut self) -> Result<Stmt> {
         let var_line = self.prev_token.line;
         let identifier = self.expect_identifier()?;
-        self.bump();
         if !self.eat(&TokenKind::Equal) {
             if self.eat(&TokenKind::Semicolon) {
                 return Ok(Stmt::Var(identifier, None));
@@ -265,7 +264,9 @@ impl Parser {
                     return Err(anyhow!("Can't have more than 255 parameters."));
                 }
                 parameters.push(self.expect_identifier()?);
-                if !self.check(&TokenKind::Comma) {
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                } else {
                     break;
                 }
             }
@@ -375,6 +376,7 @@ impl Parser {
 
         loop {
             if self.check(&TokenKind::LeftParen) {
+                self.bump();
                 expr = self.finish_call(expr)?;
             } else {
                 break;
@@ -392,7 +394,9 @@ impl Parser {
                     return Err(anyhow!("Can't have more than 255 arguments."));
                 }
                 arguments.push(self.parse_expression()?);
-                if !self.check(&TokenKind::Comma) {
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                } else {
                     break;
                 }
             }
@@ -445,7 +449,7 @@ impl Parser {
     /// Expects and consumes the token `token` if it is an identifier, and
     /// signals an error otherwise.
     pub fn expect_identifier(&mut self) -> Result<String> {
-        match &self.token.kind {
+        let value = match &self.token.kind {
             TokenKind::Identifier(value) => Ok(value.clone()),
             _ => {
                 return Err(anyhow!(
@@ -454,7 +458,9 @@ impl Parser {
                     self.token.line
                 ))
             }
-        }
+        };
+        self.bump();
+        value
     }
 
     /// Consumes one token (moves the cursor forward by one).
