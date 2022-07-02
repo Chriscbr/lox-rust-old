@@ -99,6 +99,8 @@ impl Parser {
             self.parse_if_statement()
         } else if self.eat(&TokenKind::Print) {
             self.parse_print_statement()
+        } else if self.eat(&TokenKind::Return) {
+            self.parse_return_statement()
         } else if self.eat(&TokenKind::While) {
             self.parse_while_statement()
         } else if self.eat(&TokenKind::LeftBrace) {
@@ -221,6 +223,16 @@ impl Parser {
             format!("Expected ';' after value on line {}", value_line),
         )?;
         Ok(Stmt::Print(value))
+    }
+
+    fn parse_return_statement(&mut self) -> Result<Stmt> {
+        let value_line = self.token.line;
+        let value = self.parse_expression()?;
+        self.expect(
+            &TokenKind::Semicolon,
+            format!("Expected ';' after return value on line {}", value_line),
+        )?;
+        Ok(Stmt::Return(value))
     }
 
     fn parse_var_declaration(&mut self) -> Result<Stmt> {

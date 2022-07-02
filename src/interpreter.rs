@@ -11,6 +11,17 @@ use crate::{
     visitor::StmtVisitor,
 };
 
+#[derive(Debug, Clone)]
+struct ReturnValue(RuntimeValue);
+
+impl fmt::Display for ReturnValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<returning {}>", self.0)
+    }
+}
+
+impl std::error::Error for ReturnValue {}
+
 // TODO: remove cloneable?
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeValue {
@@ -102,12 +113,22 @@ impl Interpreter {
 
                 // evaluate each statement (within our updated scope)
                 for sub_stmt in body {
-                    self.visit_stmt(sub_stmt)?;
+                    match self.visit_stmt(sub_stmt) {
+                        Err(err) => match err.downcast::<ReturnValue>() {
+                            Ok(ReturnValue(value)) => {
+                                // if we are returning early, be sure to restore
+                                // the old environment
+                                self.env.replace(old_env);
+                                return Ok(value);
+                            }
+                            Err(err) => return Err(err),
+                        },
+                        Ok(()) => (),
+                    }
                 }
 
+                // restore the old environment
                 self.env.replace(old_env);
-
-                // TODO: implement return values
 
                 Ok(RuntimeValue::Nil)
             } else {
@@ -170,6 +191,10 @@ impl StmtVisitor<Result<()>> for Interpreter {
                 self.stdout.borrow_mut().push('\n');
                 Ok(())
             }
+            Stmt::Return(expr) => {
+                let value = self.visit_expr(expr)?;
+                Err(ReturnValue(value).into())
+            }
             Stmt::Var(name, initializer) => {
                 let value = match initializer {
                     Some(expr) => Some(self.visit_expr(&expr)?),
@@ -209,13 +234,13 @@ impl StmtVisitor<Result<()>> for Interpreter {
 
                 let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
 
-                // update the function name's binding to constructed Callable
-                // value
+                // update the function name's binding to constructed Callable value
                 self.env.borrow_mut().assign(
                     &mut self.variables.borrow_mut(),
                     name.clone(),
                     callable,
                 )?;
+
                 Ok(())
             }
         }
