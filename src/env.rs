@@ -22,7 +22,7 @@ impl Default for Environment {
     }
 }
 
-// TODO: extract out "arena" from methods
+// TODO: extract out "arena" logic from methods
 
 impl Environment {
     pub fn define(

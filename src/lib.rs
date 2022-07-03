@@ -5,6 +5,7 @@ use std::{
 };
 
 mod ast_printer;
+mod cursor;
 mod env;
 mod expr;
 mod interpreter;

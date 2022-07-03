@@ -11,18 +11,19 @@ use crate::{
     visitor::StmtVisitor,
 };
 
+// A custom error type used to signal that a value is being returned, so
+// the error should be "caught" by the nearest function call.
 #[derive(Debug, Clone)]
-struct ReturnValue(RuntimeValue);
+struct ReturnValueError(RuntimeValue);
 
-impl fmt::Display for ReturnValue {
+impl fmt::Display for ReturnValueError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<returning {}>", self.0)
     }
 }
 
-impl std::error::Error for ReturnValue {}
+impl std::error::Error for ReturnValueError {}
 
-// TODO: remove cloneable?
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeValue {
     Bool(bool),
@@ -38,12 +39,12 @@ impl fmt::Display for RuntimeValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RuntimeValue::Bool(x) => write!(f, "{}", x),
-            RuntimeValue::Callable(ast, _closure) => {
-                let name = match &ast {
-                    &Stmt::Function(name, _parameters, _body) => name,
-                    _ => panic!("Unexpected function"),
-                };
-                write!(f, "<fn {}>", name)
+            RuntimeValue::Callable(ast, _) => {
+                if let &Stmt::Function(name, _, _) = &ast {
+                    write!(f, "<fn {}>", name)
+                } else {
+                    Err(std::fmt::Error)
+                }
             }
             RuntimeValue::Nil => write!(f, "nil"),
             RuntimeValue::Number(x) => write!(f, "{}", x),
@@ -114,8 +115,8 @@ impl Interpreter {
                 // evaluate each statement (within our updated scope)
                 for sub_stmt in body {
                     match self.visit_stmt(sub_stmt) {
-                        Err(err) => match err.downcast::<ReturnValue>() {
-                            Ok(ReturnValue(value)) => {
+                        Err(err) => match err.downcast::<ReturnValueError>() {
+                            Ok(ReturnValueError(value)) => {
                                 // if we are returning early, be sure to restore
                                 // the old environment
                                 self.env.replace(old_env);
@@ -193,7 +194,7 @@ impl StmtVisitor<Result<()>> for Interpreter {
             }
             Stmt::Return(expr) => {
                 let value = self.visit_expr(expr)?;
-                Err(ReturnValue(value).into())
+                Err(ReturnValueError(value).into())
             }
             Stmt::Var(name, initializer) => {
                 let value = match initializer {
@@ -316,7 +317,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                         }
 
                         Err(anyhow!(
-                            "Unexpected operants for + (must both be strings or numbers): {}, {}",
+                            "Unexpected operands for + (must be a pair of numbers or pair of strings): {}, {}",
                             left_val,
                             right_val
                         ))
@@ -377,7 +378,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
             Expr::Call(callee, arguments) => {
                 let callee_val = self.visit_expr(callee)?;
 
-                let mut argument_vals: Vec<RuntimeValue> = vec![];
+                let mut argument_vals = vec![];
                 for arg in arguments {
                     argument_vals.push(self.visit_expr(arg)?);
                 }

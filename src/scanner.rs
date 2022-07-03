@@ -6,6 +6,8 @@ use itertools::{Itertools, MultiPeek};
 
 use crate::token::{Token, TokenKind};
 
+// TODO: refactor scanner logic to use the "Cursor" class?
+
 type CharIter<'a> = MultiPeek<CharIndices<'a>>;
 
 pub struct Scanner<'a> {
