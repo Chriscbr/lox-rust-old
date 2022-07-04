@@ -1,9 +1,11 @@
 use std::cell::RefCell;
 use std::fmt;
+use std::iter::zip;
 
 use anyhow::anyhow;
 use anyhow::Result;
 use generational_arena::Arena;
+use generational_arena::Index;
 
 use crate::env::Environment;
 use crate::{
@@ -87,6 +89,40 @@ impl Interpreter {
         Ok(self.stdout.take())
     }
 
+    fn define_in_env(
+        &self,
+        env: &Environment,
+        name: String,
+        value: RuntimeValue,
+    ) -> (Environment, Index) {
+        let index = self.variables.borrow_mut().insert(value);
+        let new_env = env.insert(name, index);
+        (new_env, index)
+    }
+
+    fn update_var(&self, index: Index, value: RuntimeValue) -> Result<()> {
+        if let Some(old_value) = self.variables.borrow_mut().get_mut(index) {
+            *old_value = value;
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Variable #{:?} is unexpectedly not allocated a value.",
+                index
+            ))
+        }
+    }
+
+    fn lookup_in_env(&self, env: &Environment, name: &String) -> Result<RuntimeValue> {
+        let index = env
+            .get(name)
+            .ok_or_else(|| anyhow!("Undefined variable {}.", name))?;
+        if let Some(value) = self.variables.borrow().get(index) {
+            Ok(value.clone())
+        } else {
+            Err(anyhow!("Variable {} was unexpectedly deallocated."))
+        }
+    }
+
     fn invoke_function(
         &self,
         callee: RuntimeValue,
@@ -102,20 +138,21 @@ impl Interpreter {
                     ));
                 }
 
-                let mut environment = Environment::default();
-                environment.enclosing = Some(Box::new(closure));
-                for (param, arg) in std::iter::zip(parameters, arguments) {
-                    environment.define(&mut self.variables.borrow_mut(), param.clone(), arg);
+                // construct a new environment for the lifetime of the callable
+                // where the parameter variables have been assigned the values
+                // of the callable arguments
+                let mut invoke_env = closure.enclose();
+                for (param, arg) in zip(parameters, arguments) {
+                    (invoke_env, _) = self.define_in_env(&invoke_env, param.clone(), arg);
                 }
 
-                // replace the Interpreter's current environment with the empty
-                // environment, returning the old one
-                let old_env = self.env.replace(environment);
+                // update the environment being used to interpret statements
+                let old_env = self.env.replace(invoke_env);
 
-                // evaluate each statement (within our updated scope)
+                // evaluate each statement within our new environment
                 for sub_stmt in body {
-                    match self.visit_stmt(sub_stmt) {
-                        Err(err) => match err.downcast::<ReturnValueError>() {
+                    if let Err(err) = self.visit_stmt(sub_stmt) {
+                        match err.downcast::<ReturnValueError>() {
                             Ok(ReturnValueError(value)) => {
                                 // if we are returning early, be sure to restore
                                 // the old environment
@@ -123,8 +160,7 @@ impl Interpreter {
                                 return Ok(value);
                             }
                             Err(err) => return Err(err),
-                        },
-                        Ok(()) => (),
+                        }
                     }
                 }
 
@@ -148,34 +184,20 @@ impl StmtVisitor<Result<()>> for Interpreter {
         match stmt {
             Stmt::Block(stmts) => {
                 // create an environment that will encapsulate the old one
-                let new_env = Environment::default();
+                let new_env = self.env.borrow().enclose();
 
                 // replace the Interpreter's current environment with the empty
                 // environment, returning the old one
                 let old_env = self.env.replace(new_env);
 
-                // have the new environment enclose the old one so that
-                // if any new variables are defined in this environment,
-                // they only last as long as the block
-                self.env.borrow_mut().enclosing = Some(Box::from(old_env));
-
-                // evaluate each statement (within our updated scope)
+                // evaluate each statement (within our new environment)
                 for sub_stmt in stmts {
                     self.visit_stmt(sub_stmt)?;
                 }
 
-                // extract the old environment out of the enclosing one - if
-                // this fails, we somehow lost the old environment
-                let restored = *self
-                    .env
-                    .borrow_mut()
-                    .enclosing
-                    .take()
-                    .ok_or_else(|| anyhow!("unexpected missing environment"))?;
-
-                // restore the environment (discarding all of the variables
-                // that were defined within the block)
-                self.env.replace(restored);
+                // restore the environment, discarding all of the variables
+                // that were defined within the block
+                self.env.replace(old_env);
 
                 Ok(())
             }
@@ -201,11 +223,12 @@ impl StmtVisitor<Result<()>> for Interpreter {
                     Some(expr) => Some(self.visit_expr(&expr)?),
                     None => None,
                 };
-                self.env.borrow_mut().define(
-                    &mut self.variables.borrow_mut(),
+                let (new_env, _) = self.define_in_env(
+                    &self.env.borrow(),
                     name.clone(),
                     value.unwrap_or(RuntimeValue::Nil),
                 );
+                self.env.replace(new_env);
                 Ok(())
             }
             Stmt::If(condition, then_branch, else_branch) => {
@@ -227,20 +250,16 @@ impl StmtVisitor<Result<()>> for Interpreter {
 
                 // initially bind function name to "nil" value so that it exists
                 // in the function's closure so that recursion works
-                self.env.borrow_mut().define(
-                    &mut self.variables.borrow_mut(),
-                    name.clone(),
-                    RuntimeValue::Nil,
-                );
+                let (new_env, index) =
+                    self.define_in_env(&self.env.borrow(), name.clone(), RuntimeValue::Nil);
 
-                let callable = RuntimeValue::Callable(function, self.env.borrow().clone());
+                let callable = RuntimeValue::Callable(function, new_env.clone());
 
-                // update the function name's binding to constructed Callable value
-                self.env.borrow_mut().assign(
-                    &mut self.variables.borrow_mut(),
-                    name.clone(),
-                    callable,
-                )?;
+                // update the function name's binding to actual Callable value
+                self.update_var(index, callable)?;
+
+                // use this new environment going forward in the current scope
+                self.env.replace(new_env);
 
                 Ok(())
             }
@@ -253,11 +272,12 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
         match &expr {
             Expr::Assign(name, value) => {
                 let evaluated = self.visit_expr(value)?;
-                self.env.borrow_mut().assign(
-                    &mut self.variables.borrow_mut(),
-                    name.to_owned(),
-                    evaluated.clone(),
-                )?;
+                let index = self
+                    .env
+                    .borrow()
+                    .get(name)
+                    .ok_or_else(|| anyhow!("Undefined variable {}.", name))?;
+                self.update_var(index, evaluated.clone())?;
                 Ok(evaluated)
             }
             Expr::Binary(left, operator, right) => {
@@ -346,7 +366,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 Literal::Bool(x) => Ok(RuntimeValue::Bool(*x)),
                 Literal::Nil => Ok(RuntimeValue::Nil),
             },
-            Expr::Variable(name) => self.env.borrow().get(&self.variables.borrow_mut(), name),
+            Expr::Variable(name) => self.lookup_in_env(&self.env.borrow(), name),
             Expr::Unary(operator, value) => {
                 let evaluated = self.visit_expr(value)?;
                 match operator {

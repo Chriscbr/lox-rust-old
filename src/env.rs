@@ -1,16 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::anyhow;
-use anyhow::Result;
-use generational_arena::Arena;
 use generational_arena::Index;
-
-use crate::interpreter::RuntimeValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
-    // TODO: expose this through a method instead
-    pub enclosing: Option<Box<Environment>>,
+    enclosing: Option<Box<Environment>>,
     values: HashMap<String, Index>,
 }
 
@@ -23,68 +17,28 @@ impl Default for Environment {
     }
 }
 
-// TODO: extract out "arena" logic from methods
-
-// TODO: refactor this to make it clear that Environment
-// is an "immutable" structure. Any mutations should either return
-// a new `Environment` instance, or should be applied to the
-// underlying variable value store (in the arena) in some other
-// part of the code.
-
-// I think "define" and "assign" are more interpreter-level
-// abstractions, not Environment ones.
-
 impl Environment {
-    pub fn define(
-        &mut self,
-        arena: &mut Arena<RuntimeValue>,
-        name: String,
-        value: RuntimeValue,
-    ) -> () {
-        let index = arena.insert(value);
-        self.values.insert(name, index);
+    pub fn insert(&self, name: String, value: Index) -> Environment {
+        let mut new_env = self.clone();
+        new_env.values.insert(name, value);
+        new_env
     }
 
-    pub fn get_idx(&self, arena: &Arena<RuntimeValue>, name: &String) -> Result<Index> {
+    pub fn enclose(&self) -> Environment {
+        let mut new_env = Environment::default();
+        new_env.enclosing = Some(Box::new(self.clone()));
+        new_env
+    }
+
+    pub fn get(&self, name: &String) -> Option<Index> {
         if let Some(idx) = self.values.get(name) {
-            return Ok(*idx);
+            return Some(*idx);
         }
 
         if let Some(enclosing) = &self.enclosing {
-            return Ok(enclosing.get_idx(arena, name)?);
+            Some(enclosing.get(name)?)
         } else {
-            Err(anyhow!("Undefined variable {}.", name))
-        }
-    }
-
-    pub fn get(&self, arena: &Arena<RuntimeValue>, name: &String) -> Result<RuntimeValue> {
-        let index = self.get_idx(arena, name)?;
-        if let Some(value) = arena.get(index) {
-            return Ok(value.clone());
-        } else {
-            return Err(anyhow!("Variable {} unexpectedly deallocated.", name));
-        }
-    }
-
-    pub fn assign(
-        &mut self,
-        arena: &mut Arena<RuntimeValue>,
-        name: String,
-        value: RuntimeValue,
-    ) -> Result<()> {
-        if let Some(index) = self.values.get(&name) {
-            if let Some(old_value) = arena.get_mut(*index) {
-                *old_value = value;
-                return Ok(());
-            } else {
-                return Err(anyhow!("Variable {} unexpectedly deallocated.", name));
-            }
-        }
-
-        if let Some(enclosing) = &mut self.enclosing {
-            return Ok(enclosing.assign(arena, name, value)?);
-        } else {
-            Err(anyhow!("Undefined variable {}.", name))
+            None
         }
     }
 }
