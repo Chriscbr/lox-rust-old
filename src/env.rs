@@ -9,6 +9,7 @@ use crate::interpreter::RuntimeValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
+    // TODO: expose this through a method instead
     pub enclosing: Option<Box<Environment>>,
     values: HashMap<String, Index>,
 }
@@ -23,6 +24,15 @@ impl Default for Environment {
 }
 
 // TODO: extract out "arena" logic from methods
+
+// TODO: refactor this to make it clear that Environment
+// is an "immutable" structure. Any mutations should either return
+// a new `Environment` instance, or should be applied to the
+// underlying variable value store (in the arena) in some other
+// part of the code.
+
+// I think "define" and "assign" are more interpreter-level
+// abstractions, not Environment ones.
 
 impl Environment {
     pub fn define(
