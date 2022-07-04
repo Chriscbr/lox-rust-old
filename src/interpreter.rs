@@ -119,7 +119,7 @@ impl Interpreter {
         if let Some(value) = self.variables.borrow().get(index) {
             Ok(value.clone())
         } else {
-            Err(anyhow!("Variable {} was unexpectedly deallocated."))
+            Err(anyhow!("Variable {} was unexpectedly deallocated.", name))
         }
     }
 
