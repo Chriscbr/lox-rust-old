@@ -54,10 +54,10 @@ pub fn run(source: &str) -> Result<String> {
     // for debugging
     // println!("{:?}", stmts);
 
-    let interpreter = interpreter::Interpreter::default();
-    let stdout = interpreter.interpret(&stmts)?;
+    let mut interpreter = interpreter::Interpreter::default();
+    interpreter.interpret(&stmts)?;
 
-    Ok(stdout)
+    Ok(interpreter.stdout)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
-use std::cell::RefCell;
 use std::fmt;
+use std::fmt::Write;
 use std::iter::zip;
 
 use anyhow::anyhow;
@@ -80,42 +80,49 @@ impl RuntimeValue {
 }
 
 pub struct Interpreter {
-    env: RefCell<Environment>,
-    variables: RefCell<Arena<RuntimeValue>>,
-    stdout: RefCell<String>,
+    env: Environment,
+    variables: Arena<RuntimeValue>,
+    pub stdout: String,
 }
 
 impl Default for Interpreter {
     fn default() -> Self {
         Interpreter {
-            env: RefCell::new(Environment::default()),
-            variables: RefCell::new(Arena::new()),
-            stdout: RefCell::new(String::new()),
+            env: Environment::default(),
+            variables: Arena::new(),
+            stdout: String::new(),
         }
     }
 }
 
 impl Interpreter {
-    pub fn interpret(&self, statements: &Vec<Stmt>) -> Result<String> {
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
         for stmt in statements {
             self.visit_stmt(stmt)?;
         }
-        Ok(self.stdout.take())
+        Ok(())
     }
 
     fn define_in_env(
-        &self,
+        &mut self,
         env: &Environment,
         name: String,
         value: RuntimeValue,
     ) -> (Environment, Index) {
-        let index = self.variables.borrow_mut().insert(value);
+        let index = self.variables.insert(value);
         let new_env = env.insert(name, index);
         (new_env, index)
     }
 
-    fn update_var(&self, index: Index, value: RuntimeValue) -> Result<()> {
-        if let Some(old_value) = self.variables.borrow_mut().get_mut(index) {
+    // this method only exists to avoid a borrow checker issue
+    fn define_in_self_env(&mut self, name: String, value: RuntimeValue) -> (Environment, Index) {
+        let index = self.variables.insert(value);
+        let new_env = self.env.insert(name, index);
+        (new_env, index)
+    }
+
+    fn update_var(&mut self, index: Index, value: RuntimeValue) -> Result<()> {
+        if let Some(old_value) = self.variables.get_mut(index) {
             *old_value = value;
             Ok(())
         } else {
@@ -130,7 +137,7 @@ impl Interpreter {
         let index = env
             .get(name)
             .ok_or_else(|| anyhow!("Undefined variable {}.", name))?;
-        if let Some(value) = self.variables.borrow().get(index) {
+        if let Some(value) = self.variables.get(index) {
             Ok(value.clone())
         } else {
             Err(anyhow!("Variable {} was unexpectedly deallocated.", name))
@@ -138,7 +145,7 @@ impl Interpreter {
     }
 
     fn invoke_function(
-        &self,
+        &mut self,
         callee: RuntimeValue,
         arguments: Vec<RuntimeValue>,
     ) -> Result<RuntimeValue> {
@@ -166,7 +173,9 @@ impl Interpreter {
                 }
 
                 // update the environment being used to interpret statements
-                let old_env = self.env.replace(invoke_env);
+                // let old_env = self.env;
+                // self.env = invoke_env;
+                let old_env = std::mem::replace(&mut self.env, invoke_env);
 
                 // evaluate each statement within our new environment
                 for sub_stmt in body {
@@ -175,7 +184,7 @@ impl Interpreter {
                             Ok(ReturnValueError(value)) => {
                                 // if we are returning early, be sure to restore
                                 // the old environment
-                                self.env.replace(old_env);
+                                self.env = old_env;
                                 return Ok(value);
                             }
                             Err(err) => return Err(err),
@@ -184,7 +193,7 @@ impl Interpreter {
                 }
 
                 // restore the old environment
-                self.env.replace(old_env);
+                self.env = old_env;
 
                 Ok(RuntimeValue::Nil)
             } else {
@@ -201,14 +210,14 @@ impl Interpreter {
 impl StmtVisitor for Interpreter {
     type StmtResult = Result<()>;
 
-    fn visit_stmt_block(&self, block: &Block) -> Self::StmtResult {
+    fn visit_stmt_block(&mut self, block: &Block) -> Self::StmtResult {
         let Block { statements } = block;
         // create an environment that will encapsulate the old one
-        let new_env = self.env.borrow().enclose();
+        let new_env = self.env.enclose();
 
         // replace the Interpreter's current environment with the empty
         // environment, returning the old one
-        let old_env = self.env.replace(new_env);
+        let old_env = std::mem::replace(&mut self.env, new_env);
 
         // evaluate each statement (within our new environment)
         for sub_stmt in statements {
@@ -217,29 +226,26 @@ impl StmtVisitor for Interpreter {
 
         // restore the environment, discarding all of the variables
         // that were defined within the block
-        self.env.replace(old_env);
+        self.env = old_env;
 
         Ok(())
     }
 
-    fn visit_stmt_expression(&self, expression: &Expression) -> Self::StmtResult {
+    fn visit_stmt_expression(&mut self, expression: &Expression) -> Self::StmtResult {
         let Expression { expression } = expression;
         self.visit_expr(expression)?;
         Ok(())
     }
 
-    fn visit_stmt_print(&self, print: &Print) -> Self::StmtResult {
+    fn visit_stmt_print(&mut self, print: &Print) -> Self::StmtResult {
         let Print { expression } = print;
         let value = self.visit_expr(expression)?;
         println!("{}", value);
-        self.stdout
-            .borrow_mut()
-            .push_str(value.to_string().as_str());
-        self.stdout.borrow_mut().push('\n');
+        writeln!(&mut self.stdout, "{}", value)?;
         Ok(())
     }
 
-    fn visit_stmt_function(&self, function: &Function) -> Self::StmtResult {
+    fn visit_stmt_function(&mut self, function: &Function) -> Self::StmtResult {
         let Function { name, params, body } = function;
         let function = Stmt::Function(Function {
             name: name.clone(),
@@ -249,8 +255,7 @@ impl StmtVisitor for Interpreter {
 
         // initially bind function name to "nil" value so that it exists
         // in the function's closure so that recursion works
-        let (new_env, index) =
-            self.define_in_env(&self.env.borrow(), name.clone(), RuntimeValue::Nil);
+        let (new_env, index) = self.define_in_self_env(name.clone(), RuntimeValue::Nil);
 
         let callable = RuntimeValue::Callable(function, new_env.clone());
 
@@ -258,12 +263,12 @@ impl StmtVisitor for Interpreter {
         self.update_var(index, callable)?;
 
         // use this new environment going forward in the current scope
-        self.env.replace(new_env);
+        self.env = new_env;
 
         Ok(())
     }
 
-    fn visit_stmt_if(&self, if_: &If) -> Self::StmtResult {
+    fn visit_stmt_if(&mut self, if_: &If) -> Self::StmtResult {
         let If {
             condition,
             then_branch,
@@ -277,24 +282,24 @@ impl StmtVisitor for Interpreter {
         Ok(())
     }
 
-    fn visit_stmt_return(&self, return_: &Return) -> Self::StmtResult {
+    fn visit_stmt_return(&mut self, return_: &Return) -> Self::StmtResult {
         let Return { value } = return_;
         let value = self.visit_expr(value)?;
         Err(ReturnValueError(value).into())
     }
 
-    fn visit_stmt_var(&self, var: &Var) -> Self::StmtResult {
+    fn visit_stmt_var(&mut self, var: &Var) -> Self::StmtResult {
         let Var { name, initializer } = var;
         let value = match initializer {
             Some(expr) => self.visit_expr(expr)?,
             None => RuntimeValue::Nil,
         };
-        let (new_env, _) = self.define_in_env(&self.env.borrow(), name.clone(), value);
-        self.env.replace(new_env);
+        let (new_env, _) = self.define_in_self_env(name.clone(), value);
+        self.env = new_env;
         Ok(())
     }
 
-    fn visit_stmt_while(&self, while_: &While) -> Self::StmtResult {
+    fn visit_stmt_while(&mut self, while_: &While) -> Self::StmtResult {
         let While { condition, body } = while_;
         while is_truthy(&self.visit_expr(condition)?) {
             self.visit_stmt(body)?;
@@ -306,19 +311,18 @@ impl StmtVisitor for Interpreter {
 impl ExprVisitor for Interpreter {
     type ExprResult = Result<RuntimeValue>;
 
-    fn visit_expr_assign(&self, assign: &Assign) -> Self::ExprResult {
+    fn visit_expr_assign(&mut self, assign: &Assign) -> Self::ExprResult {
         let Assign { name, value } = assign;
         let evaluated = self.visit_expr(value)?;
         let index = self
             .env
-            .borrow()
             .get(name)
             .ok_or_else(|| anyhow!("Undefined variable {}.", name))?;
         self.update_var(index, evaluated.clone())?;
         Ok(evaluated)
     }
 
-    fn visit_expr_binary(&self, binary: &Binary) -> Self::ExprResult {
+    fn visit_expr_binary(&mut self, binary: &Binary) -> Self::ExprResult {
         let Binary {
             left,
             operator,
@@ -403,7 +407,7 @@ impl ExprVisitor for Interpreter {
         }
     }
 
-    fn visit_expr_call(&self, call: &Call) -> Self::ExprResult {
+    fn visit_expr_call(&mut self, call: &Call) -> Self::ExprResult {
         let Call { callee, arguments } = call;
         let callee_val = self.visit_expr(callee)?;
 
@@ -415,12 +419,12 @@ impl ExprVisitor for Interpreter {
         self.invoke_function(callee_val, argument_vals)
     }
 
-    fn visit_expr_grouping(&self, grouping: &Grouping) -> Self::ExprResult {
+    fn visit_expr_grouping(&mut self, grouping: &Grouping) -> Self::ExprResult {
         let Grouping { expression } = grouping;
         self.visit_expr(expression)
     }
 
-    fn visit_expr_literal(&self, literal: &Literal) -> Self::ExprResult {
+    fn visit_expr_literal(&mut self, literal: &Literal) -> Self::ExprResult {
         match literal {
             Literal::Number(x) => Ok(RuntimeValue::Number(*x)),
             Literal::String(x) => Ok(RuntimeValue::String(x.to_owned())),
@@ -429,7 +433,7 @@ impl ExprVisitor for Interpreter {
         }
     }
 
-    fn visit_expr_logical(&self, logical: &Logical) -> Self::ExprResult {
+    fn visit_expr_logical(&mut self, logical: &Logical) -> Self::ExprResult {
         let Logical {
             left,
             operator,
@@ -454,7 +458,7 @@ impl ExprVisitor for Interpreter {
         self.visit_expr(right)
     }
 
-    fn visit_expr_unary(&self, unary: &Unary) -> Self::ExprResult {
+    fn visit_expr_unary(&mut self, unary: &Unary) -> Self::ExprResult {
         let Unary { operator, right } = unary;
         let right_val = self.visit_expr(right)?;
 
@@ -468,9 +472,9 @@ impl ExprVisitor for Interpreter {
         }
     }
 
-    fn visit_expr_variable(&self, variable: &Variable) -> Self::ExprResult {
+    fn visit_expr_variable(&mut self, variable: &Variable) -> Self::ExprResult {
         let Variable { name } = variable;
-        self.lookup_in_env(&self.env.borrow(), name)
+        self.lookup_in_env(&self.env, name)
     }
 }
 

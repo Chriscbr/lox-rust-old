@@ -5,7 +5,7 @@ use crate::{
 
 pub trait ExprVisitor {
     type ExprResult;
-    fn visit_expr(&self, expr: &Expr) -> Self::ExprResult {
+    fn visit_expr(&mut self, expr: &Expr) -> Self::ExprResult {
         match expr {
             Expr::Assign(assign) => self.visit_expr_assign(assign),
             Expr::Binary(binary) => self.visit_expr_binary(binary),
@@ -17,19 +17,19 @@ pub trait ExprVisitor {
             Expr::Unary(unary) => self.visit_expr_unary(unary),
         }
     }
-    fn visit_expr_assign(&self, assign: &Assign) -> Self::ExprResult;
-    fn visit_expr_binary(&self, binary: &Binary) -> Self::ExprResult;
-    fn visit_expr_call(&self, call: &Call) -> Self::ExprResult;
-    fn visit_expr_grouping(&self, grouping: &Grouping) -> Self::ExprResult;
-    fn visit_expr_literal(&self, literal: &Literal) -> Self::ExprResult;
-    fn visit_expr_logical(&self, logical: &Logical) -> Self::ExprResult;
-    fn visit_expr_variable(&self, variable: &Variable) -> Self::ExprResult;
-    fn visit_expr_unary(&self, unary: &Unary) -> Self::ExprResult;
+    fn visit_expr_assign(&mut self, assign: &Assign) -> Self::ExprResult;
+    fn visit_expr_binary(&mut self, binary: &Binary) -> Self::ExprResult;
+    fn visit_expr_call(&mut self, call: &Call) -> Self::ExprResult;
+    fn visit_expr_grouping(&mut self, grouping: &Grouping) -> Self::ExprResult;
+    fn visit_expr_literal(&mut self, literal: &Literal) -> Self::ExprResult;
+    fn visit_expr_logical(&mut self, logical: &Logical) -> Self::ExprResult;
+    fn visit_expr_variable(&mut self, variable: &Variable) -> Self::ExprResult;
+    fn visit_expr_unary(&mut self, unary: &Unary) -> Self::ExprResult;
 }
 
 pub trait StmtVisitor {
     type StmtResult;
-    fn visit_stmt(&self, stmt: &Stmt) -> Self::StmtResult {
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Self::StmtResult {
         match stmt {
             Stmt::Block(block) => self.visit_stmt_block(block),
             Stmt::Expression(expression) => self.visit_stmt_expression(expression),
@@ -41,14 +41,14 @@ pub trait StmtVisitor {
             Stmt::While(while_) => self.visit_stmt_while(while_),
         }
     }
-    fn visit_stmt_block(&self, block: &Block) -> Self::StmtResult;
-    fn visit_stmt_expression(&self, expression: &Expression) -> Self::StmtResult;
-    fn visit_stmt_function(&self, function: &Function) -> Self::StmtResult;
-    fn visit_stmt_if(&self, if_: &If) -> Self::StmtResult;
-    fn visit_stmt_print(&self, print: &Print) -> Self::StmtResult;
-    fn visit_stmt_return(&self, return_: &Return) -> Self::StmtResult;
-    fn visit_stmt_var(&self, var: &Var) -> Self::StmtResult;
-    fn visit_stmt_while(&self, while_: &While) -> Self::StmtResult;
+    fn visit_stmt_block(&mut self, block: &Block) -> Self::StmtResult;
+    fn visit_stmt_expression(&mut self, expression: &Expression) -> Self::StmtResult;
+    fn visit_stmt_function(&mut self, function: &Function) -> Self::StmtResult;
+    fn visit_stmt_if(&mut self, if_: &If) -> Self::StmtResult;
+    fn visit_stmt_print(&mut self, print: &Print) -> Self::StmtResult;
+    fn visit_stmt_return(&mut self, return_: &Return) -> Self::StmtResult;
+    fn visit_stmt_var(&mut self, var: &Var) -> Self::StmtResult;
+    fn visit_stmt_while(&mut self, while_: &While) -> Self::StmtResult;
 }
 
 pub trait Visit<'ast> {
