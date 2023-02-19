@@ -8,6 +8,21 @@ use generational_arena::Arena;
 use generational_arena::Index;
 
 use crate::env::Environment;
+use crate::expr::Assign;
+use crate::expr::Binary;
+use crate::expr::Call;
+use crate::expr::Grouping;
+use crate::expr::Logical;
+use crate::expr::Unary;
+use crate::expr::Variable;
+use crate::stmt::Block;
+use crate::stmt::Expression;
+use crate::stmt::Function;
+use crate::stmt::If;
+use crate::stmt::Print;
+use crate::stmt::Return;
+use crate::stmt::Var;
+use crate::stmt::While;
 use crate::{
     expr::Expr, expr::Literal, stmt::Stmt, token::TokenKind, visitor::ExprVisitor,
     visitor::StmtVisitor,
@@ -42,7 +57,7 @@ impl fmt::Display for RuntimeValue {
         match self {
             RuntimeValue::Bool(x) => write!(f, "{}", x),
             RuntimeValue::Callable(ast, _) => {
-                if let &Stmt::Function(name, _, _) = &ast {
+                if let &Stmt::Function(Function { name, .. }) = &ast {
                     write!(f, "<fn {}>", name)
                 } else {
                     Err(std::fmt::Error)
@@ -129,11 +144,16 @@ impl Interpreter {
         arguments: Vec<RuntimeValue>,
     ) -> Result<RuntimeValue> {
         if let RuntimeValue::Callable(ast, closure) = callee {
-            if let Stmt::Function(_name, parameters, body) = &ast {
-                if parameters.len() != arguments.len() {
+            if let Stmt::Function(Function {
+                name: _,
+                params,
+                body,
+            }) = &ast
+            {
+                if params.len() != arguments.len() {
                     return Err(anyhow!(
                         "Expected {} arguments but got {}.",
-                        parameters.len(),
+                        params.len(),
                         arguments.len()
                     ));
                 }
@@ -142,7 +162,7 @@ impl Interpreter {
                 // where the parameter variables have been assigned the values
                 // of the callable arguments
                 let mut invoke_env = closure.enclose();
-                for (param, arg) in zip(parameters, arguments) {
+                for (param, arg) in zip(params, arguments) {
                     (invoke_env, _) = self.define_in_env(&invoke_env, param.clone(), arg);
                 }
 
@@ -182,7 +202,7 @@ impl Interpreter {
 impl StmtVisitor<Result<()>> for Interpreter {
     fn visit_stmt(&self, stmt: &Stmt) -> Result<()> {
         match stmt {
-            Stmt::Block(stmts) => {
+            Stmt::Block(Block { statements }) => {
                 // create an environment that will encapsulate the old one
                 let new_env = self.env.borrow().enclose();
 
@@ -191,7 +211,7 @@ impl StmtVisitor<Result<()>> for Interpreter {
                 let old_env = self.env.replace(new_env);
 
                 // evaluate each statement (within our new environment)
-                for sub_stmt in stmts {
+                for sub_stmt in statements {
                     self.visit_stmt(sub_stmt)?;
                 }
 
@@ -201,12 +221,12 @@ impl StmtVisitor<Result<()>> for Interpreter {
 
                 Ok(())
             }
-            Stmt::Expression(expr) => {
-                self.visit_expr(expr)?;
+            Stmt::Expression(Expression { expression }) => {
+                self.visit_expr(expression)?;
                 Ok(())
             }
-            Stmt::Print(expr) => {
-                let value = self.visit_expr(expr)?;
+            Stmt::Print(Print { expression }) => {
+                let value = self.visit_expr(expression)?;
                 println!("{}", value);
                 self.stdout
                     .borrow_mut()
@@ -214,13 +234,13 @@ impl StmtVisitor<Result<()>> for Interpreter {
                 self.stdout.borrow_mut().push('\n');
                 Ok(())
             }
-            Stmt::Return(expr) => {
-                let value = self.visit_expr(expr)?;
+            Stmt::Return(Return { value }) => {
+                let value = self.visit_expr(value)?;
                 Err(ReturnValueError(value).into())
             }
-            Stmt::Var(name, initializer) => {
+            Stmt::Var(Var { name, initializer }) => {
                 let value = match initializer {
-                    Some(expr) => Some(self.visit_expr(&expr)?),
+                    Some(expr) => Some(self.visit_expr(expr)?),
                     None => None,
                 };
                 let (new_env, _) = self.define_in_env(
@@ -231,22 +251,30 @@ impl StmtVisitor<Result<()>> for Interpreter {
                 self.env.replace(new_env);
                 Ok(())
             }
-            Stmt::If(condition, then_branch, else_branch) => {
+            Stmt::If(If {
+                condition,
+                then_branch,
+                else_branch,
+            }) => {
                 if is_truthy(&self.visit_expr(condition)?) {
-                    self.visit_stmt(&then_branch)?;
+                    self.visit_stmt(then_branch)?;
                 } else if let Some(unwrapped) = else_branch {
                     self.visit_stmt(unwrapped)?;
                 }
                 Ok(())
             }
-            Stmt::While(condition, body) => {
+            Stmt::While(While { condition, body }) => {
                 while is_truthy(&self.visit_expr(condition)?) {
                     self.visit_stmt(body)?;
                 }
                 Ok(())
             }
-            Stmt::Function(name, parameters, body) => {
-                let function = Stmt::Function(name.clone(), parameters.clone(), body.clone());
+            Stmt::Function(Function { name, params, body }) => {
+                let function = Stmt::Function(Function {
+                    name: name.clone(),
+                    params: params.clone(),
+                    body: body.clone(),
+                });
 
                 // initially bind function name to "nil" value so that it exists
                 // in the function's closure so that recursion works
@@ -270,7 +298,7 @@ impl StmtVisitor<Result<()>> for Interpreter {
 impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
     fn visit_expr(&self, expr: &Expr) -> Result<RuntimeValue> {
         match &expr {
-            Expr::Assign(name, value) => {
+            Expr::Assign(Assign { name, value }) => {
                 let evaluated = self.visit_expr(value)?;
                 let index = self
                     .env
@@ -280,7 +308,11 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 self.update_var(index, evaluated.clone())?;
                 Ok(evaluated)
             }
-            Expr::Binary(left, operator, right) => {
+            Expr::Binary(Binary {
+                left,
+                operator,
+                right,
+            }) => {
                 let left_val = self.visit_expr(left)?;
                 let right_val = self.visit_expr(right)?;
                 match operator {
@@ -359,16 +391,16 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                     _ => Err(anyhow!("Unexpected binary operator: {}", operator)),
                 }
             }
-            Expr::Grouping(expr) => self.visit_expr(expr),
+            Expr::Grouping(Grouping { expression }) => self.visit_expr(expression),
             Expr::Literal(literal) => match literal {
                 Literal::Number(x) => Ok(RuntimeValue::Number(*x)),
                 Literal::String(x) => Ok(RuntimeValue::String(x.to_owned())),
                 Literal::Bool(x) => Ok(RuntimeValue::Bool(*x)),
                 Literal::Nil => Ok(RuntimeValue::Nil),
             },
-            Expr::Variable(name) => self.lookup_in_env(&self.env.borrow(), name),
-            Expr::Unary(operator, value) => {
-                let evaluated = self.visit_expr(value)?;
+            Expr::Variable(Variable { name }) => self.lookup_in_env(&self.env.borrow(), name),
+            Expr::Unary(Unary { operator, right }) => {
+                let evaluated = self.visit_expr(right)?;
                 match operator {
                     TokenKind::Bang => Ok(RuntimeValue::Bool(is_truthy(&evaluated))),
                     TokenKind::Minus => match evaluated {
@@ -378,7 +410,11 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                     _ => Err(anyhow!("Unexpected unary operator: {}.", operator)),
                 }
             }
-            Expr::Logical(left, operator, right) => {
+            Expr::Logical(Logical {
+                left,
+                operator,
+                right,
+            }) => {
                 let left_val = self.visit_expr(left)?;
                 match operator {
                     TokenKind::Or => {
@@ -395,7 +431,7 @@ impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
                 };
                 self.visit_expr(right)
             }
-            Expr::Call(callee, arguments) => {
+            Expr::Call(Call { callee, arguments }) => {
                 let callee_val = self.visit_expr(callee)?;
 
                 let mut argument_vals = vec![];

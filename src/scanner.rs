@@ -134,7 +134,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn read_to_end_of_line(&self, iter: &mut CharIter) -> () {
+    fn read_to_end_of_line(&self, iter: &mut CharIter) {
         while self.peek_match(iter, |ch| ch != '\n') {
             iter.next();
         }
@@ -174,16 +174,14 @@ impl<'a> Scanner<'a> {
 
         // Look for a fractional part
         iter.reset_peek();
-        if matches!(iter.peek(), Some((_, '.'))) {
-            if matches!(iter.peek(), Some((_, '0'..='9'))) {
-                // consume the ".", reset peek lookahead
+        if matches!(iter.peek(), Some((_, '.'))) && matches!(iter.peek(), Some((_, '0'..='9'))) {
+            // consume the ".", reset peek lookahead
+            iter.next();
+            len += 1;
+
+            while self.peek_match(iter, |ch| ch.is_ascii_digit()) {
                 iter.next();
                 len += 1;
-
-                while self.peek_match(iter, |ch| ch.is_ascii_digit()) {
-                    iter.next();
-                    len += 1;
-                }
             }
         }
 

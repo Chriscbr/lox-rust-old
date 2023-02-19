@@ -2,19 +2,10 @@ use std::collections::HashMap;
 
 use generational_arena::Index;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Environment {
     enclosing: Option<Box<Environment>>,
     values: HashMap<String, Index>,
-}
-
-impl Default for Environment {
-    fn default() -> Self {
-        Environment {
-            enclosing: None,
-            values: HashMap::new(),
-        }
-    }
 }
 
 impl Environment {
@@ -25,9 +16,10 @@ impl Environment {
     }
 
     pub fn enclose(&self) -> Environment {
-        let mut new_env = Environment::default();
-        new_env.enclosing = Some(Box::new(self.clone()));
-        new_env
+        Environment {
+            enclosing: Some(Box::new(self.clone())),
+            ..Default::default()
+        }
     }
 
     pub fn get(&self, name: &String) -> Option<Index> {

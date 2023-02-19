@@ -1,7 +1,7 @@
 use crate::{
     cursor::Cursor,
-    expr::{Expr, Literal},
-    stmt::Stmt,
+    expr::{Assign, Binary, Call, Expr, Grouping, Literal, Logical, Unary, Variable},
+    stmt::{Block, Expression, Function, If, Print, Return, Stmt, Var, While},
     token::{Token, TokenKind},
 };
 
@@ -57,7 +57,9 @@ impl Parser {
         } else if self.eat(&TokenKind::While) {
             self.parse_while_statement()
         } else if self.eat(&TokenKind::LeftBrace) {
-            Ok(Stmt::Block(self.parse_block()?))
+            Ok(Stmt::Block(Block {
+                statements: self.parse_block()?,
+            }))
         } else {
             self.parse_expression_statement()
         }
@@ -93,14 +95,21 @@ impl Parser {
         )?;
         let mut body = self.parse_statement()?;
         if let Some(expr) = increment {
-            body = Stmt::Block(vec![body, Stmt::Expression(expr).into()]);
+            body = Stmt::Block(Block {
+                statements: vec![body, Stmt::Expression(Expression { expression: expr })],
+            });
         }
         if condition.is_none() {
             condition = Some(Expr::Literal(Literal::Bool(true)));
         }
-        body = Stmt::While(condition.unwrap(), body.into());
+        body = Stmt::While(While {
+            condition: condition.unwrap(),
+            body: body.into(),
+        });
         if let Some(expr) = initializer {
-            body = Stmt::Block(vec![expr, body]);
+            body = Stmt::Block(Block {
+                statements: vec![expr, body],
+            });
         }
         Ok(body)
     }
@@ -115,23 +124,23 @@ impl Parser {
         )?;
 
         let then_branch = self.parse_statement()?;
-        if self.check(&TokenKind::Else) {
-            let else_branch = self.parse_statement()?;
-            Ok(Stmt::If(
-                condition,
-                then_branch.into(),
-                Some(else_branch.into()),
-            ))
+        let else_branch = if self.check(&TokenKind::Else) {
+            Some(self.parse_statement()?)
         } else {
-            Ok(Stmt::If(condition, then_branch.into(), None))
-        }
+            None
+        };
+        Ok(Stmt::If(If {
+            condition,
+            then_branch: then_branch.into(),
+            else_branch: else_branch.map(|e| e.into()),
+        }))
     }
 
     fn parse_expression_statement(&mut self) -> Result<Stmt> {
         let line = self.token.line;
-        let expr = self.parse_expression()?;
+        let expression = self.parse_expression()?;
         if self.eat(&TokenKind::Semicolon) {
-            Ok(Stmt::Expression(expr))
+            Ok(Stmt::Expression(Expression { expression }))
         } else {
             Err(anyhow!("Expected ';' after value on line {}", line))
         }
@@ -149,7 +158,10 @@ impl Parser {
             "Expected ')' after condition.".into(),
         )?;
         let body = self.parse_statement()?;
-        Ok(Stmt::While(condition, body.into()))
+        Ok(Stmt::While(While {
+            condition,
+            body: body.into(),
+        }))
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>> {
@@ -170,12 +182,12 @@ impl Parser {
 
     fn parse_print_statement(&mut self) -> Result<Stmt> {
         let value_line = self.token.line;
-        let value = self.parse_expression()?;
+        let expression = self.parse_expression()?;
         self.expect(
             &TokenKind::Semicolon,
             format!("Expected ';' after value on line {}", value_line),
         )?;
-        Ok(Stmt::Print(value))
+        Ok(Stmt::Print(Print { expression }))
     }
 
     fn parse_return_statement(&mut self) -> Result<Stmt> {
@@ -185,15 +197,18 @@ impl Parser {
             &TokenKind::Semicolon,
             format!("Expected ';' after return value on line {}", value_line),
         )?;
-        Ok(Stmt::Return(value))
+        Ok(Stmt::Return(Return { value }))
     }
 
     fn parse_var_declaration(&mut self) -> Result<Stmt> {
         let var_line = self.prev_token.line;
-        let identifier = self.expect_identifier()?;
+        let name = self.expect_identifier()?;
         if !self.eat(&TokenKind::Equal) {
             if self.eat(&TokenKind::Semicolon) {
-                return Ok(Stmt::Var(identifier, None));
+                return Ok(Stmt::Var(Var {
+                    name,
+                    initializer: None,
+                }));
             } else {
                 return Err(anyhow!(
                     "Expected ';' after variable declaration on line {}",
@@ -203,7 +218,10 @@ impl Parser {
         }
         let initializer = self.parse_expression()?;
         if self.eat(&TokenKind::Semicolon) {
-            Ok(Stmt::Var(identifier, Some(initializer)))
+            Ok(Stmt::Var(Var {
+                name,
+                initializer: Some(initializer),
+            }))
         } else {
             Err(anyhow!(
                 "Expected ';' after variable declaration on line {}",
@@ -222,13 +240,13 @@ impl Parser {
             &TokenKind::LeftParen,
             format!("Expected '(' after {} on line {}", name, self.token.line),
         )?;
-        let mut parameters = vec![];
+        let mut params = vec![];
         if !self.check(&TokenKind::RightParen) {
             loop {
-                if parameters.len() >= 255 {
+                if params.len() >= 255 {
                     return Err(anyhow!("Can't have more than 255 parameters."));
                 }
-                parameters.push(self.expect_identifier()?);
+                params.push(self.expect_identifier()?);
                 if self.check(&TokenKind::Comma) {
                     self.bump();
                 } else {
@@ -242,10 +260,10 @@ impl Parser {
         )?;
         self.expect(
             &TokenKind::LeftBrace,
-            format!("Expected '{{' before function body."),
+            "Expected '{' before function body.".into(),
         )?;
         let body = self.parse_block()?;
-        Ok(Stmt::Function(name, parameters, body))
+        Ok(Stmt::Function(Function { name, params, body }))
     }
 
     fn parse_assignment(&mut self) -> Result<Expr> {
@@ -254,7 +272,10 @@ impl Parser {
             let line = self.token.line;
             let value = self.parse_assignment()?;
             match expr {
-                Expr::Variable(name) => Ok(Expr::Assign(name, Box::from(value))),
+                Expr::Variable(Variable { name }) => Ok(Expr::Assign(Assign {
+                    name,
+                    value: Box::from(value),
+                })),
                 _ => Err(anyhow!("Invalid assignment target on line {}", line)),
             }
         } else {
@@ -267,7 +288,11 @@ impl Parser {
         while self.eat(&TokenKind::Or) {
             let operator = self.prev_token.kind.clone();
             let right = self.parse_term()?;
-            expr = Expr::Logical(Box::from(expr), operator, Box::from(right))
+            expr = Expr::Logical(Logical {
+                left: Box::from(expr),
+                operator,
+                right: Box::from(right),
+            })
         }
         Ok(expr)
     }
@@ -277,7 +302,11 @@ impl Parser {
         while self.eat(&TokenKind::And) {
             let operator = self.prev_token.kind.clone();
             let right = self.parse_term()?;
-            expr = Expr::Logical(Box::from(expr), operator, Box::from(right))
+            expr = Expr::Logical(Logical {
+                left: Box::from(expr),
+                operator,
+                right: Box::from(right),
+            })
         }
         Ok(expr)
     }
@@ -288,7 +317,11 @@ impl Parser {
             let operator = self.token.kind.clone();
             self.bump();
             let right = self.parse_comparison()?;
-            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
+            expr = Expr::Binary(Binary {
+                left: Box::from(expr),
+                operator,
+                right: Box::from(right),
+            })
         }
         Ok(expr)
     }
@@ -299,7 +332,11 @@ impl Parser {
             let operator = self.token.kind.clone();
             self.bump();
             let right = self.parse_term()?;
-            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
+            expr = Expr::Binary(Binary {
+                left: Box::from(expr),
+                operator,
+                right: Box::from(right),
+            })
         }
         Ok(expr)
     }
@@ -310,7 +347,11 @@ impl Parser {
             let operator = self.token.kind.clone();
             self.bump();
             let right = self.parse_factor()?;
-            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
+            expr = Expr::Binary(Binary {
+                left: Box::from(expr),
+                operator,
+                right: Box::from(right),
+            })
         }
         Ok(expr)
     }
@@ -320,7 +361,11 @@ impl Parser {
         while self.token.is_factor() {
             let operator = self.token.kind.clone();
             let right = self.parse_unary()?;
-            expr = Expr::Binary(Box::from(expr), operator, Box::from(right))
+            expr = Expr::Binary(Binary {
+                left: Box::from(expr),
+                operator,
+                right: Box::from(right),
+            })
         }
         Ok(expr)
     }
@@ -330,7 +375,10 @@ impl Parser {
             self.bump();
             let operator = self.token.kind.clone();
             let right = self.parse_unary()?;
-            Ok(Expr::Unary(operator, Box::from(right)))
+            Ok(Expr::Unary(Unary {
+                operator,
+                right: Box::from(right),
+            }))
         } else {
             self.parse_call()
         }
@@ -370,7 +418,10 @@ impl Parser {
             &TokenKind::RightParen,
             "Expected ')' after arguments.".into(),
         )?;
-        Ok(Expr::Call(Box::new(callee), arguments))
+        Ok(Expr::Call(Call {
+            callee: Box::new(callee),
+            arguments,
+        }))
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
@@ -387,9 +438,11 @@ impl Parser {
                     &TokenKind::RightParen,
                     format!("Expected ')' to match '(' on line {}", line),
                 )?;
-                Ok(Expr::Grouping(Box::from(expr)))
+                Ok(Expr::Grouping(Grouping {
+                    expression: Box::from(expr),
+                }))
             }
-            TokenKind::Identifier(value) => Ok(Expr::Variable(value.clone())),
+            TokenKind::Identifier(name) => Ok(Expr::Variable(Variable { name: name.clone() })),
             _ => Err(anyhow!(
                 "Expected an expression, found token {} on line {}",
                 self.token.kind,
@@ -435,7 +488,7 @@ impl Parser {
             &mut self.token,
             self.cursor
                 .next()
-                .unwrap_or(Token::new(TokenKind::Eof, line)),
+                .unwrap_or_else(|| Token::new(TokenKind::Eof, line)),
         );
     }
 
@@ -469,7 +522,9 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let result = parser.parse().unwrap();
-        let expected = vec![Stmt::Print(Expr::Literal(Literal::String("one".into())))];
+        let expected = vec![Stmt::Print(Print {
+            expression: Expr::Literal(Literal::String("one".into())),
+        })];
         assert_eq!(result, expected)
     }
 }

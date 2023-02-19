@@ -4,7 +4,6 @@ use std::{
     path::PathBuf,
 };
 
-mod ast_printer;
 mod cursor;
 mod env;
 mod expr;
@@ -38,7 +37,7 @@ pub fn run_prompt() -> Result<()> {
 }
 
 pub fn run(source: &str) -> Result<String> {
-    let scanner = scanner::Scanner::new(&source);
+    let scanner = scanner::Scanner::new(source);
     let tokens = scanner.scan_tokens()?;
 
     // for debugging
