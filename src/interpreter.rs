@@ -23,10 +23,9 @@ use crate::stmt::Print;
 use crate::stmt::Return;
 use crate::stmt::Var;
 use crate::stmt::While;
-use crate::{
-    expr::Expr, expr::Literal, stmt::Stmt, token::TokenKind, visitor::ExprVisitor,
-    visitor::StmtVisitor,
-};
+use crate::visitor::ExprVisitor;
+use crate::visitor::StmtVisitor;
+use crate::{expr::Literal, stmt::Stmt, token::TokenKind};
 
 // A custom error type used to signal that a value is being returned, so
 // the error should be "caught" by the nearest function call.
@@ -199,249 +198,279 @@ impl Interpreter {
     }
 }
 
-impl StmtVisitor<Result<()>> for Interpreter {
-    fn visit_stmt(&self, stmt: &Stmt) -> Result<()> {
-        match stmt {
-            Stmt::Block(Block { statements }) => {
-                // create an environment that will encapsulate the old one
-                let new_env = self.env.borrow().enclose();
+impl StmtVisitor for Interpreter {
+    type StmtResult = Result<()>;
 
-                // replace the Interpreter's current environment with the empty
-                // environment, returning the old one
-                let old_env = self.env.replace(new_env);
+    fn visit_stmt_block(&self, block: &Block) -> Self::StmtResult {
+        let Block { statements } = block;
+        // create an environment that will encapsulate the old one
+        let new_env = self.env.borrow().enclose();
 
-                // evaluate each statement (within our new environment)
-                for sub_stmt in statements {
-                    self.visit_stmt(sub_stmt)?;
-                }
+        // replace the Interpreter's current environment with the empty
+        // environment, returning the old one
+        let old_env = self.env.replace(new_env);
 
-                // restore the environment, discarding all of the variables
-                // that were defined within the block
-                self.env.replace(old_env);
-
-                Ok(())
-            }
-            Stmt::Expression(Expression { expression }) => {
-                self.visit_expr(expression)?;
-                Ok(())
-            }
-            Stmt::Print(Print { expression }) => {
-                let value = self.visit_expr(expression)?;
-                println!("{}", value);
-                self.stdout
-                    .borrow_mut()
-                    .push_str(value.to_string().as_str());
-                self.stdout.borrow_mut().push('\n');
-                Ok(())
-            }
-            Stmt::Return(Return { value }) => {
-                let value = self.visit_expr(value)?;
-                Err(ReturnValueError(value).into())
-            }
-            Stmt::Var(Var { name, initializer }) => {
-                let value = match initializer {
-                    Some(expr) => Some(self.visit_expr(expr)?),
-                    None => None,
-                };
-                let (new_env, _) = self.define_in_env(
-                    &self.env.borrow(),
-                    name.clone(),
-                    value.unwrap_or(RuntimeValue::Nil),
-                );
-                self.env.replace(new_env);
-                Ok(())
-            }
-            Stmt::If(If {
-                condition,
-                then_branch,
-                else_branch,
-            }) => {
-                if is_truthy(&self.visit_expr(condition)?) {
-                    self.visit_stmt(then_branch)?;
-                } else if let Some(unwrapped) = else_branch {
-                    self.visit_stmt(unwrapped)?;
-                }
-                Ok(())
-            }
-            Stmt::While(While { condition, body }) => {
-                while is_truthy(&self.visit_expr(condition)?) {
-                    self.visit_stmt(body)?;
-                }
-                Ok(())
-            }
-            Stmt::Function(Function { name, params, body }) => {
-                let function = Stmt::Function(Function {
-                    name: name.clone(),
-                    params: params.clone(),
-                    body: body.clone(),
-                });
-
-                // initially bind function name to "nil" value so that it exists
-                // in the function's closure so that recursion works
-                let (new_env, index) =
-                    self.define_in_env(&self.env.borrow(), name.clone(), RuntimeValue::Nil);
-
-                let callable = RuntimeValue::Callable(function, new_env.clone());
-
-                // update the function name's binding to actual Callable value
-                self.update_var(index, callable)?;
-
-                // use this new environment going forward in the current scope
-                self.env.replace(new_env);
-
-                Ok(())
-            }
+        // evaluate each statement (within our new environment)
+        for sub_stmt in statements {
+            self.visit_stmt(sub_stmt)?;
         }
+
+        // restore the environment, discarding all of the variables
+        // that were defined within the block
+        self.env.replace(old_env);
+
+        Ok(())
+    }
+
+    fn visit_stmt_expression(&self, expression: &Expression) -> Self::StmtResult {
+        let Expression { expression } = expression;
+        self.visit_expr(expression)?;
+        Ok(())
+    }
+
+    fn visit_stmt_print(&self, print: &Print) -> Self::StmtResult {
+        let Print { expression } = print;
+        let value = self.visit_expr(expression)?;
+        println!("{}", value);
+        self.stdout
+            .borrow_mut()
+            .push_str(value.to_string().as_str());
+        self.stdout.borrow_mut().push('\n');
+        Ok(())
+    }
+
+    fn visit_stmt_function(&self, function: &Function) -> Self::StmtResult {
+        let Function { name, params, body } = function;
+        let function = Stmt::Function(Function {
+            name: name.clone(),
+            params: params.clone(),
+            body: body.clone(),
+        });
+
+        // initially bind function name to "nil" value so that it exists
+        // in the function's closure so that recursion works
+        let (new_env, index) =
+            self.define_in_env(&self.env.borrow(), name.clone(), RuntimeValue::Nil);
+
+        let callable = RuntimeValue::Callable(function, new_env.clone());
+
+        // update the function name's binding to actual Callable value
+        self.update_var(index, callable)?;
+
+        // use this new environment going forward in the current scope
+        self.env.replace(new_env);
+
+        Ok(())
+    }
+
+    fn visit_stmt_if(&self, if_: &If) -> Self::StmtResult {
+        let If {
+            condition,
+            then_branch,
+            else_branch,
+        } = if_;
+        if is_truthy(&self.visit_expr(condition)?) {
+            self.visit_stmt(then_branch)?;
+        } else if let Some(unwrapped) = else_branch {
+            self.visit_stmt(unwrapped)?;
+        }
+        Ok(())
+    }
+
+    fn visit_stmt_return(&self, return_: &Return) -> Self::StmtResult {
+        let Return { value } = return_;
+        let value = self.visit_expr(value)?;
+        Err(ReturnValueError(value).into())
+    }
+
+    fn visit_stmt_var(&self, var: &Var) -> Self::StmtResult {
+        let Var { name, initializer } = var;
+        let value = match initializer {
+            Some(expr) => self.visit_expr(expr)?,
+            None => RuntimeValue::Nil,
+        };
+        let (new_env, _) = self.define_in_env(&self.env.borrow(), name.clone(), value);
+        self.env.replace(new_env);
+        Ok(())
+    }
+
+    fn visit_stmt_while(&self, while_: &While) -> Self::StmtResult {
+        let While { condition, body } = while_;
+        while is_truthy(&self.visit_expr(condition)?) {
+            self.visit_stmt(body)?;
+        }
+        Ok(())
     }
 }
 
-impl ExprVisitor<Result<RuntimeValue>> for Interpreter {
-    fn visit_expr(&self, expr: &Expr) -> Result<RuntimeValue> {
-        match &expr {
-            Expr::Assign(Assign { name, value }) => {
-                let evaluated = self.visit_expr(value)?;
-                let index = self
-                    .env
-                    .borrow()
-                    .get(name)
-                    .ok_or_else(|| anyhow!("Undefined variable {}.", name))?;
-                self.update_var(index, evaluated.clone())?;
-                Ok(evaluated)
+impl ExprVisitor for Interpreter {
+    type ExprResult = Result<RuntimeValue>;
+
+    fn visit_expr_assign(&self, assign: &Assign) -> Self::ExprResult {
+        let Assign { name, value } = assign;
+        let evaluated = self.visit_expr(value)?;
+        let index = self
+            .env
+            .borrow()
+            .get(name)
+            .ok_or_else(|| anyhow!("Undefined variable {}.", name))?;
+        self.update_var(index, evaluated.clone())?;
+        Ok(evaluated)
+    }
+
+    fn visit_expr_binary(&self, binary: &Binary) -> Self::ExprResult {
+        let Binary {
+            left,
+            operator,
+            right,
+        } = binary;
+        let left_val = self.visit_expr(left)?;
+        let right_val = self.visit_expr(right)?;
+        match operator {
+            TokenKind::Greater => {
+                let left_num =
+                    left_val.unwrap_number(anyhow!("Unexpected operand before >: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after >: {}", right_val))?;
+                Ok(RuntimeValue::Bool(left_num > right_num))
             }
-            Expr::Binary(Binary {
-                left,
-                operator,
-                right,
-            }) => {
-                let left_val = self.visit_expr(left)?;
-                let right_val = self.visit_expr(right)?;
-                match operator {
-                    TokenKind::Greater => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before >: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after >: {}", right_val))?;
-                        Ok(RuntimeValue::Bool(left_num > right_num))
+            TokenKind::GreaterEqual => {
+                let left_num = left_val
+                    .unwrap_number(anyhow!("Unexpected operand before >=: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after >=: {}", right_val))?;
+                Ok(RuntimeValue::Bool(left_num >= right_num))
+            }
+            TokenKind::Less => {
+                let left_num =
+                    left_val.unwrap_number(anyhow!("Unexpected operand before <: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after <: {}", right_val))?;
+                Ok(RuntimeValue::Bool(left_num < right_num))
+            }
+            TokenKind::LessEqual => {
+                let left_num = left_val
+                    .unwrap_number(anyhow!("Unexpected operand before <=: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after <=: {}", right_val))?;
+                Ok(RuntimeValue::Bool(left_num <= right_num))
+            }
+            TokenKind::BangEqual => Ok(RuntimeValue::Bool(left_val != right_val)),
+            TokenKind::EqualEqual => Ok(RuntimeValue::Bool(left_val == right_val)),
+            TokenKind::Minus => {
+                let left_num =
+                    left_val.unwrap_number(anyhow!("Unexpected operand before -: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after -: {}", right_val))?;
+                Ok(RuntimeValue::Number(left_num - right_num))
+            }
+            TokenKind::Plus => {
+                if let RuntimeValue::Number(left_num) = left_val {
+                    if let RuntimeValue::Number(right_num) = right_val {
+                        return Ok(RuntimeValue::Number(left_num + right_num));
                     }
-                    TokenKind::GreaterEqual => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before >=: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after >=: {}", right_val))?;
-                        Ok(RuntimeValue::Bool(left_num >= right_num))
-                    }
-                    TokenKind::Less => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before <: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after <: {}", right_val))?;
-                        Ok(RuntimeValue::Bool(left_num < right_num))
-                    }
-                    TokenKind::LessEqual => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before <=: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after <=: {}", right_val))?;
-                        Ok(RuntimeValue::Bool(left_num <= right_num))
-                    }
-                    TokenKind::BangEqual => Ok(RuntimeValue::Bool(left_val != right_val)),
-                    TokenKind::EqualEqual => Ok(RuntimeValue::Bool(left_val == right_val)),
-                    TokenKind::Minus => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before -: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after -: {}", right_val))?;
-                        Ok(RuntimeValue::Number(left_num - right_num))
-                    }
-                    TokenKind::Plus => {
-                        if let RuntimeValue::Number(left_num) = left_val {
-                            if let RuntimeValue::Number(right_num) = right_val {
-                                return Ok(RuntimeValue::Number(left_num + right_num));
-                            }
-                        }
+                }
 
-                        if let RuntimeValue::String(ref left_str) = left_val {
-                            if let RuntimeValue::String(right_str) = right_val {
-                                let mut new_str = left_str.clone();
-                                new_str.push_str(&right_str);
-                                return Ok(RuntimeValue::String(new_str));
-                            }
-                        }
+                if let RuntimeValue::String(ref left_str) = left_val {
+                    if let RuntimeValue::String(right_str) = right_val {
+                        let mut new_str = left_str.clone();
+                        new_str.push_str(&right_str);
+                        return Ok(RuntimeValue::String(new_str));
+                    }
+                }
 
-                        Err(anyhow!(
+                Err(anyhow!(
                             "Unexpected operands for + (must be a pair of numbers or pair of strings): {}, {}",
                             left_val,
                             right_val
                         ))
-                    }
-                    TokenKind::Slash => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before /: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after /: {}", right_val))?;
-                        Ok(RuntimeValue::Number(left_num / right_num))
-                    }
-                    TokenKind::Star => {
-                        let left_num = left_val
-                            .unwrap_number(anyhow!("Unexpected operand before *: {}", left_val))?;
-                        let right_num = right_val
-                            .unwrap_number(anyhow!("Unexpected operand after *: {}", right_val))?;
-                        Ok(RuntimeValue::Number(left_num * right_num))
-                    }
-                    _ => Err(anyhow!("Unexpected binary operator: {}", operator)),
-                }
             }
-            Expr::Grouping(Grouping { expression }) => self.visit_expr(expression),
-            Expr::Literal(literal) => match literal {
-                Literal::Number(x) => Ok(RuntimeValue::Number(*x)),
-                Literal::String(x) => Ok(RuntimeValue::String(x.to_owned())),
-                Literal::Bool(x) => Ok(RuntimeValue::Bool(*x)),
-                Literal::Nil => Ok(RuntimeValue::Nil),
-            },
-            Expr::Variable(Variable { name }) => self.lookup_in_env(&self.env.borrow(), name),
-            Expr::Unary(Unary { operator, right }) => {
-                let evaluated = self.visit_expr(right)?;
-                match operator {
-                    TokenKind::Bang => Ok(RuntimeValue::Bool(is_truthy(&evaluated))),
-                    TokenKind::Minus => match evaluated {
-                        RuntimeValue::Number(x) => Ok(RuntimeValue::Number(-x)),
-                        _ => Err(anyhow!("Unexpected operand after -: {}.", evaluated)),
-                    },
-                    _ => Err(anyhow!("Unexpected unary operator: {}.", operator)),
-                }
+            TokenKind::Slash => {
+                let left_num =
+                    left_val.unwrap_number(anyhow!("Unexpected operand before /: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after /: {}", right_val))?;
+                Ok(RuntimeValue::Number(left_num / right_num))
             }
-            Expr::Logical(Logical {
-                left,
-                operator,
-                right,
-            }) => {
-                let left_val = self.visit_expr(left)?;
-                match operator {
-                    TokenKind::Or => {
-                        if is_truthy(&left_val) {
-                            return Ok(left_val);
-                        }
-                    }
-                    TokenKind::And => {
-                        if !is_truthy(&left_val) {
-                            return Ok(left_val);
-                        }
-                    }
-                    _ => return Err(anyhow!("Unexpected logical operator: {}.", operator)),
-                };
-                self.visit_expr(right)
+            TokenKind::Star => {
+                let left_num =
+                    left_val.unwrap_number(anyhow!("Unexpected operand before *: {}", left_val))?;
+                let right_num = right_val
+                    .unwrap_number(anyhow!("Unexpected operand after *: {}", right_val))?;
+                Ok(RuntimeValue::Number(left_num * right_num))
             }
-            Expr::Call(Call { callee, arguments }) => {
-                let callee_val = self.visit_expr(callee)?;
-
-                let mut argument_vals = vec![];
-                for arg in arguments {
-                    argument_vals.push(self.visit_expr(arg)?);
-                }
-
-                self.invoke_function(callee_val, argument_vals)
-            }
+            _ => Err(anyhow!("Unexpected binary operator: {}", operator)),
         }
+    }
+
+    fn visit_expr_call(&self, call: &Call) -> Self::ExprResult {
+        let Call { callee, arguments } = call;
+        let callee_val = self.visit_expr(callee)?;
+
+        let mut argument_vals = vec![];
+        for arg in arguments {
+            argument_vals.push(self.visit_expr(arg)?);
+        }
+
+        self.invoke_function(callee_val, argument_vals)
+    }
+
+    fn visit_expr_grouping(&self, grouping: &Grouping) -> Self::ExprResult {
+        let Grouping { expression } = grouping;
+        self.visit_expr(expression)
+    }
+
+    fn visit_expr_literal(&self, literal: &Literal) -> Self::ExprResult {
+        match literal {
+            Literal::Number(x) => Ok(RuntimeValue::Number(*x)),
+            Literal::String(x) => Ok(RuntimeValue::String(x.to_owned())),
+            Literal::Bool(x) => Ok(RuntimeValue::Bool(*x)),
+            Literal::Nil => Ok(RuntimeValue::Nil),
+        }
+    }
+
+    fn visit_expr_logical(&self, logical: &Logical) -> Self::ExprResult {
+        let Logical {
+            left,
+            operator,
+            right,
+        } = logical;
+        let left_val = self.visit_expr(left)?;
+
+        match operator {
+            TokenKind::Or => {
+                if is_truthy(&left_val) {
+                    return Ok(left_val);
+                }
+            }
+            TokenKind::And => {
+                if !is_truthy(&left_val) {
+                    return Ok(left_val);
+                }
+            }
+            _ => return Err(anyhow!("Unexpected logical operator: {}.", operator)),
+        }
+
+        self.visit_expr(right)
+    }
+
+    fn visit_expr_unary(&self, unary: &Unary) -> Self::ExprResult {
+        let Unary { operator, right } = unary;
+        let right_val = self.visit_expr(right)?;
+
+        match operator {
+            TokenKind::Bang => Ok(RuntimeValue::Bool(is_truthy(&right_val))),
+            TokenKind::Minus => match right_val {
+                RuntimeValue::Number(x) => Ok(RuntimeValue::Number(-x)),
+                _ => Err(anyhow!("Unexpected operand after -: {}.", right_val)),
+            },
+            _ => Err(anyhow!("Unexpected unary operator: {}.", operator)),
+        }
+    }
+
+    fn visit_expr_variable(&self, variable: &Variable) -> Self::ExprResult {
+        let Variable { name } = variable;
+        self.lookup_in_env(&self.env.borrow(), name)
     }
 }
 
